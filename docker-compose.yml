@@ -1,0 +1,116 @@
+services:
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: customer-management-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: customer_management
+      POSTGRES_USER: app_user
+      POSTGRES_PASSWORD: app_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app_user -d customer_management"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  service-service:
+    build: ./service-service
+    container_name: customer-management-service-service
+    restart: unless-stopped
+    environment:
+      PORT: 4003
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: customer_management
+      DB_USER: app_user
+      DB_PASSWORD: app_password
+    expose:
+      - "4003"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:4003/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
+  lead-service:
+    build: ./lead-service
+    container_name: customer-management-lead-service
+    restart: unless-stopped
+    environment:
+      PORT: 4001
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: customer_management
+      DB_USER: app_user
+      DB_PASSWORD: app_password
+      CUSTOMER_SERVICE_URL: http://customer-service:4002
+    expose:
+      - "4001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      service-service:
+        condition: service_healthy
+
+  customer-service:
+    build: ./customer-service
+    container_name: customer-management-customer-service
+    restart: unless-stopped
+    environment:
+      PORT: 4002
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: customer_management
+      DB_USER: app_user
+      DB_PASSWORD: app_password
+    expose:
+      - "4002"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      service-service:
+        condition: service_healthy
+
+  kong:
+    image: kong:3.9
+    container_name: customer-management-kong
+    restart: unless-stopped
+    environment:
+      KONG_DATABASE: "off"
+      KONG_DECLARATIVE_CONFIG: /kong/declarative/kong.yml
+      KONG_PROXY_ACCESS_LOG: /dev/stdout
+      KONG_ADMIN_ACCESS_LOG: /dev/stdout
+      KONG_PROXY_ERROR_LOG: /dev/stderr
+      KONG_ADMIN_ERROR_LOG: /dev/stderr
+      KONG_ADMIN_LISTEN: "0.0.0.0:8001"
+    volumes:
+      - ./kong/kong.yml:/kong/declarative/kong.yml:ro
+    ports:
+      - "8080:8000"
+    depends_on:
+      lead-service:
+        condition: service_started
+      customer-service:
+        condition: service_started
+      service-service:
+        condition: service_healthy
+
+  frontend:
+    build: ./frontend
+    container_name: customer-management-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      kong:
+        condition: service_started
+
+volumes:
+  postgres_data:
