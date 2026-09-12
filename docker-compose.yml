@@ -1,5 +1,4 @@
 services:
-
   postgres:
     image: postgres:16-alpine
     container_name: customer-management-postgres
@@ -15,11 +14,14 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+      start_period: 5s
 
   service-service:
-    build: ./service-service
+    build:
+      context: ./service-service
     container_name: customer-management-service-service
-    restart: unless-stopped
+    ports:
+      - "4003:4003"
     environment:
       PORT: 4003
       DB_HOST: postgres
@@ -27,42 +29,25 @@ services:
       DB_NAME: customer_management
       DB_USER: app_user
       DB_PASSWORD: app_password
-    expose:
-      - "4003"
+      JWT_SECRET: omnicore-development-secret-change-this
+      JWT_ISSUER: omnicore-identity-service
     depends_on:
       postgres:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:4003/health"]
-      interval: 5s
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:4003/health || exit 1"]
+      interval: 10s
       timeout: 5s
       retries: 10
-      start_period: 5s
-
-  lead-service:
-    build: ./lead-service
-    container_name: customer-management-lead-service
+      start_period: 10s
     restart: unless-stopped
-    environment:
-      PORT: 4001
-      DB_HOST: postgres
-      DB_PORT: 5432
-      DB_NAME: customer_management
-      DB_USER: app_user
-      DB_PASSWORD: app_password
-      CUSTOMER_SERVICE_URL: http://customer-service:4002
-    expose:
-      - "4001"
-    depends_on:
-      postgres:
-        condition: service_healthy
-      service-service:
-        condition: service_healthy
 
   customer-service:
-    build: ./customer-service
+    build:
+      context: ./customer-service
     container_name: customer-management-customer-service
-    restart: unless-stopped
+    ports:
+      - "4002:4002"
     environment:
       PORT: 4002
       DB_HOST: postgres
@@ -70,13 +55,84 @@ services:
       DB_NAME: customer_management
       DB_USER: app_user
       DB_PASSWORD: app_password
-    expose:
-      - "4002"
+      JWT_SECRET: omnicore-development-secret-change-this
+      JWT_ISSUER: omnicore-identity-service
+      SERVICE_SERVICE_URL: http://service-service:4003
     depends_on:
       postgres:
         condition: service_healthy
       service-service:
         condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget --no-verbose --tries=1 --spider http://localhost:4002/health || exit 1"
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
+  lead-service:
+    build:
+      context: ./lead-service
+    container_name: customer-management-lead-service
+    ports:
+      - "4001:4001"
+    environment:
+      PORT: 4001
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: customer_management
+      DB_USER: app_user
+      DB_PASSWORD: app_password
+      JWT_SECRET: omnicore-development-secret-change-this
+      JWT_ISSUER: omnicore-identity-service
+      CUSTOMER_SERVICE_URL: http://customer-service:4002
+      SERVICE_SERVICE_URL: http://service-service:4003
+    depends_on:
+      postgres:
+        condition: service_healthy
+      service-service:
+        condition: service_healthy
+      customer-service:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:4001/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
+  identity-service:
+    build:
+      context: ./identity-service
+    container_name: customer-management-identity-service
+    ports:
+      - "4004:4004"
+    environment:
+      PORT: 4004
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: customer_management
+      DB_USER: app_user
+      DB_PASSWORD: app_password
+      JWT_SECRET: omnicore-development-secret-change-this
+      JWT_ISSUER: omnicore-identity-service
+      JWT_EXPIRES_IN: 8h
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:4004/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
 
   kong:
     image: kong:3.9
@@ -101,9 +157,12 @@ services:
         condition: service_started
       service-service:
         condition: service_healthy
+      identity-service:
+        condition: service_started
 
   frontend:
-    build: ./frontend
+    build:
+      context: ./frontend
     container_name: customer-management-frontend
     restart: unless-stopped
     ports:

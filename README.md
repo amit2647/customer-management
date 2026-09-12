@@ -986,6 +986,20 @@ Potential future enhancements include:
 
 ---
 
+# Roles Matrix
+
+| Role                     | Leads       | Customers | Services | Users  | Organization | Own-record restriction |
+| ------------------------ | ----------- | --------- | -------- | ------ | ------------ | ---------------------- |
+| Super Admin              | Full        | Full      | Full     | Full   | Full         | No                     |
+| Operations Manager       | Full        | Full      | Full     | Manage | Manage       | No                     |
+| Marketing Manager        | Full        | Limited   | View     | No     | No           | No                     |
+| Marketing Specialist     | Create/View | Limited   | View     | No     | No           | No                     |
+| Sales Manager            | Full        | Full      | View     | Team   | No           | No                     |
+| Sales Representative     | Own         | Own       | View     | No     | No           | **Yes**                |
+| Customer Support Agent   | Limited     | View      | Full     | No     | No           | No                     |
+| Customer Success Manager | View        | Full      | View     | No     | No           | No                     |
+
+
 # License
 
 This project is an academic MVP created for educational and demonstration purposes.
