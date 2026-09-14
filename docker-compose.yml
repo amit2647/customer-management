@@ -134,6 +134,43 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  dashboard-service:
+    build:
+      context: ./dashboard-service
+    container_name: customer-management-dashboard-service
+    ports:
+      - "4005:4005"
+    environment:
+      PORT: 4005
+
+      JWT_SECRET: omnicore-development-secret-change-this
+      JWT_ISSUER: omnicore-identity-service
+
+      LEAD_SERVICE_URL: http://lead-service:4001
+      CUSTOMER_SERVICE_URL: http://customer-service:4002
+      SERVICE_SERVICE_URL: http://service-service:4003
+
+    depends_on:
+      lead-service:
+        condition: service_healthy
+      customer-service:
+        condition: service_healthy
+      service-service:
+        condition: service_healthy
+
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget --no-verbose --tries=1 --spider http://localhost:4005/health || exit 1"
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+    restart: unless-stopped
+
   kong:
     image: kong:3.9
     container_name: customer-management-kong
