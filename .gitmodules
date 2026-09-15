@@ -1,0 +1,24 @@
+[submodule "customer-service"]
+	path = customer-service
+	url = git@github.com-amit2647:amit2647/customer-service.git
+[submodule "dashboard-service"]
+	path = dashboard-service
+	url = git@github.com-amit2647:amit2647/dashboard-service.git
+[submodule "email-service"]
+	path = email-service
+	url = git@github.com-amit2647:amit2647/email-service.git
+[submodule "frontend"]
+	path = frontend
+	url = git@github.com-amit2647:amit2647/customer_mgmt_frontend.git
+[submodule "identity-service"]
+	path = identity-service
+	url = git@github.com-amit2647:amit2647/identity-service.git
+[submodule "kong"]
+	path = kong
+	url = git@github.com-amit2647:amit2647/api_gateway.git
+[submodule "lead-service"]
+	path = lead-service
+	url = git@github.com-amit2647:amit2647/lead-service.git
+[submodule "service-service"]
+	path = service-service
+	url = git@github.com-amit2647:amit2647/service-service.git
