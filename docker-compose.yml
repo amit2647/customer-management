@@ -202,28 +202,59 @@ services:
 
     restart: unless-stopped
 
-  smtp-service:
+  email-service:
     build:
-      context: ./smtp-service
-    container_name: smtp-service
+      context: ./email-service
+    container_name: customer-management-email-service
     restart: unless-stopped
-
-    environment:
-      PORT: 4006
-
-      SMTP_HOST: smtp.gmail.com
-      SMTP_PORT: 587
-      SMTP_SECURE: "false"
-
-      SMTP_USER: ${SMTP_USER}
-      SMTP_PASSWORD: ${SMTP_PASSWORD}
-      SMTP_FROM: ${SMTP_FROM}
 
     ports:
       - "4006:4006"
 
-    networks:
-      - default
+    environment:
+      PORT: 4006
+
+      # PostgreSQL
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: customer_management
+      DB_USER: app_user
+      DB_PASSWORD: app_password
+
+      # JWT
+      JWT_SECRET: omnicore-development-secret-change-this
+      JWT_ISSUER: omnicore-identity-service
+
+      # SMTP / Gmail
+      SMTP_HOST: smtp.gmail.com
+      SMTP_PORT: 587
+      SMTP_SECURE: "false"
+      SMTP_USER: ${SMTP_USER}
+      SMTP_PASSWORD: ${SMTP_PASSWORD}
+      SMTP_FROM: ${SMTP_FROM}
+
+      # Redis
+      REDIS_URL: redis://redis:6379
+
+      CUSTOMER_SERVICE_URL: http://customer-service:4002
+      LEAD_SERVICE_URL: http://lead-service:4001
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget --no-verbose --tries=1 --spider http://localhost:4006/health || exit 1",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
 
   kong:
     image: kong:3.9
