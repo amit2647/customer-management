@@ -1,8 +1,10 @@
 # Customer Management
 
-Academic MVP demonstrating a **Service-Oriented Architecture (SOA)** for customer and lead management.
+MVP demonstrating a **Service-Oriented Architecture (SOA)** for customer and lead management.
 
-The application demonstrates how an API Gateway can provide a stable frontend-facing API while independent backend services manage separate business capabilities.
+The platform demonstrates how an **API Gateway** can provide a stable frontend-facing API while independent backend services manage separate business capabilities.
+
+The project is organized as a **multi-repository architecture**. Each service is maintained as an independent Git repository, while the `customer-management` repository acts as the parent repository and uses **Git submodules** to assemble the complete application.
 
 ---
 
@@ -47,11 +49,61 @@ The application demonstrates how an API Gateway can provide a stable frontend-fa
 - Assign services to leads
 - Assign services to customers
 
-### Lead Conversion
+### Email Communication
+
+The Email Service provides email as a communication channel for leads and customers.
+
+Current capabilities include:
+
+- SMTP-based email delivery
+- Email API
+- Customer/lead communication support
+- Email templates
+- Separate email service
+- Extensible architecture for future email automation
+
+Future email capabilities can include:
+
+- Automated follow-up emails
+- Welcome emails
+- Lead nurturing sequences
+- Customer notifications
+- Scheduled emails
+- Event-triggered email automation
+- Email communication history
+
+### Dashboard
+
+The Dashboard Service provides aggregated information for the application dashboard.
+
+It is responsible for:
+
+- Dashboard metrics
+- Aggregated service data
+- Redis-based caching
+- Dashboard API endpoints
+
+### Identity and Access Management
+
+The Identity Service provides authentication and authorization capabilities.
+
+Responsibilities include:
+
+- User authentication
+- JWT-based authentication
+- User management
+- Organization management
+- Role management
+- Permission management
+- Role-based access control
+
+---
+
+# Lead Conversion
 
 A qualified lead can be converted into a customer.
 
-The conversion workflow:
+The conversion workflow is:
 
 ```text
 Qualified Lead
@@ -70,62 +122,106 @@ Lead marked as Converted
 
 The conversion operation is performed transactionally so that the customer creation, service mapping, and lead status update succeed or fail together.
 
-### Architecture
-
-- Service-Oriented Architecture (SOA)
-- Kong API Gateway
-- Independent Lead Service
-- Independent Customer Service
-- Independent Service Catalog Service
-- PostgreSQL persistence
-- REST APIs
-- Docker Compose deployment
-- React/Vite frontend
-- Service-to-service data relationships
-- Many-to-many lead/service mapping
-- Many-to-many customer/service mapping
-
 ---
 
 # Architecture
 
 ```text
-                         Browser
-                            |
-                            | HTTP :3000
-                            v
-                    +----------------+
-                    | React Frontend |
-                    +----------------+
-                            |
-                            | REST API
-                            v
-                    +----------------+
-                    |  Kong Gateway  |
-                    |     :8080      |
-                    +----------------+
-                       /      |      \
-                      /       |       \
-                     v        v        v
-              +---------+ +---------+ +---------------+
-              |  Lead   | |Customer | |    Service    |
-              | Service | | Service | |    Service    |
-              | :4001   | | :4002   | |    :4003      |
-              +---------+ +---------+ +---------------+
-                   \          |             /
-                    \         |            /
-                     +--------+-----------+
-                              |
-                              v
-                       +-------------+
-                       | PostgreSQL  |
-                       |     DB      |
-                       +-------------+
+                              Browser
+                                 |
+                                 | HTTP :3000
+                                 v
+                         +---------------+
+                         | React / Vite  |
+                         |   Frontend    |
+                         +-------+-------+
+                                 |
+                                 | REST API
+                                 v
+                         +---------------+
+                         |     Kong      |
+                         | API Gateway   |
+                         |    :8080      |
+                         +-------+-------+
+                                 |
+             +-------------------+-------------------+
+             |          |          |        |        |
+             v          v          v        v        v
+       +---------+ +---------+ +---------+ +------+ +---------+
+       |  Lead   | |Customer | | Service | |Email | |Identity |
+       | Service | | Service | | Service | |Service| | Service |
+       |  :4001  | |  :4002  | |  :4003  | | :4006 | |  :4004 |
+       +----+----+ +----+----+ +----+----+ +------+ +---------+
+            |           |           |
+            +-----------+-----------+
+                        |
+                        v
+                 +-------------+
+                 | PostgreSQL  |
+                 |     DB      |
+                 +-------------+
+
+                         +-------------+
+                         |    Redis    |
+                         |   Cache     |
+                         +-------------+
+                                |
+                                v
+                        Dashboard Service
 ```
 
-## Components
+> Port numbers are based on the current Docker Compose configuration. Verify `docker-compose.yml` if ports are changed.
 
-### Frontend
+---
+
+# Service-Oriented Architecture
+
+The application separates business capabilities into independent services.
+
+```text
++---------------------+
+|   Customer Mgmt     |
+|   Parent Project    |
++----------+----------+
+           |
+           +-------------------+
+           |                   |
+           v                   v
+     +-----------+       +-----------+
+     | Lead      |       | Customer  |
+     | Service   |       | Service   |
+     +-----------+       +-----------+
+           |
+           +-----------+
+           |           |
+           v           v
+     +-----------+ +-----------+
+     | Service   | |   Email   |
+     | Catalog   | |  Service  |
+     +-----------+ +-----------+
+
+     +-----------+       +-----------+
+     | Identity  |       | Dashboard |
+     | Service   |       | Service   |
+     +-----------+       +-----------+
+```
+
+Each service has its own:
+
+- Source code
+- Git repository
+- Git history
+- Dockerfile
+- `package.json`
+- API
+- Business logic
+- Database access layer
+
+---
+
+# Components
+
+## Frontend
 
 The frontend is implemented using:
 
@@ -145,7 +241,7 @@ http://localhost:3000
 
 ---
 
-### Kong API Gateway
+## Kong API Gateway
 
 Kong acts as the API Gateway between the frontend and backend services.
 
@@ -159,44 +255,41 @@ Example routing:
 
 ```text
 /api/leads/*
-
-        |
-        v
-
+       |
+       v
 Lead Service :4001
 ```
 
 ```text
 /api/customers/*
-
-        |
-        v
-
+       |
+       v
 Customer Service :4002
 ```
 
 ```text
 /api/services/*
-
-        |
-        v
-
+       |
+       v
 Service Service :4003
+```
+
+```text
+/api/*
+       |
+       v
+Other backend services
 ```
 
 The gateway provides a stable API boundary for the frontend and hides internal service addresses.
 
 ---
 
-## Backend Services
+# Backend Services
 
-### Lead Service
+## Lead Service
 
-Port:
-
-```text
-4001
-```
+**Port:** `4001`
 
 Responsibilities:
 
@@ -206,31 +299,33 @@ Responsibilities:
 - Lead status management
 - Lead/service relationships
 - Lead conversion
+- Lead validation
+- Organization/user ownership
 
 Main API:
 
-```text
+```http
 GET    /leads
 GET    /leads/:id
 POST   /leads
 PATCH  /leads/:id
 DELETE /leads/:id
-
 GET    /leads/:id/services
 PUT    /leads/:id/services
-
 POST   /leads/:id/convert
+```
+
+Repository:
+
+```text
+lead-service
 ```
 
 ---
 
-### Customer Service
+## Customer Service
 
-Port:
-
-```text
-4002
-```
+**Port:** `4002`
 
 Responsibilities:
 
@@ -238,29 +333,32 @@ Responsibilities:
 - Customer search
 - Customer details
 - Customer/service relationships
+- Customer validation
+- Organization/user ownership
 
 Main API:
 
-```text
+```http
 GET    /customers
 GET    /customers/:id
 POST   /customers
 PUT    /customers/:id
 DELETE /customers/:id
-
 GET    /customers/:id/services
 PUT    /customers/:id/services
 ```
 
----
-
-### Service Service
-
-Port:
+Repository:
 
 ```text
-4003
+customer-service
 ```
+
+---
+
+## Service Service
+
+**Port:** `4003`
 
 Responsibilities:
 
@@ -273,7 +371,7 @@ Responsibilities:
 
 Main API:
 
-```text
+```http
 GET    /services
 GET    /services/:id
 POST   /services
@@ -281,120 +379,75 @@ PUT    /services/:id
 DELETE /services/:id
 ```
 
----
-
-# Data Model
-
-The application uses PostgreSQL.
-
-Database:
+Repository:
 
 ```text
-customer_management
-```
-
-The main entities are:
-
-```text
-+----------+
-|  leads   |
-+----------+
-     |
-     | lead_services
-     |
-     v
-+----------+
-| services |
-+----------+
-     ^
-     |
-     | customer_services
-     |
-+-------------+
-| customers   |
-+-------------+
-```
-
-## Tables
-
-### `leads`
-
-Stores prospect information.
-
-Important fields include:
-
-```text
-id
-name
-company
-email
-phone
-channel
-status
-score
-created_at
-updated_at
+service-service
 ```
 
 ---
 
-### `customers`
+## Identity Service
 
-Stores customer information.
+The Identity Service provides authentication and authorization.
 
-Important fields include:
+Responsibilities:
+
+- Login
+- JWT generation
+- Authentication
+- User management
+- Organization management
+- Role management
+- Permission management
+- Authorization
+
+Repository:
 
 ```text
-id
-name
-company
-email
-phone
-segment
-created_at
-updated_at
+identity-service
 ```
 
 ---
 
-### `services`
+## Email Service
 
-Stores the service catalog.
+The Email Service provides email-based communication capabilities.
 
-Important fields include:
+Responsibilities:
+
+- SMTP configuration
+- Email sending
+- Email templates
+- Lead communication
+- Customer communication
+- Email service APIs
+
+Repository:
 
 ```text
-id
-name
-description
-category
-status
-created_at
-updated_at
+email-service
 ```
+
+The service is designed to evolve into a broader communication service supporting email automation and communication workflows.
 
 ---
 
-### `lead_services`
+## Dashboard Service
 
-Many-to-many relationship between leads and services.
+The Dashboard Service provides aggregated dashboard data.
 
-```text
-lead_id
-service_id
-created_at
-```
+Responsibilities:
 
----
+- Dashboard metrics
+- Data aggregation
+- Redis caching
+- Dashboard API
 
-### `customer_services`
-
-Many-to-many relationship between customers and services.
+Repository:
 
 ```text
-customer_id
-service_id
-created_at
+dashboard-service
 ```
 
 ---
@@ -545,6 +598,158 @@ GET /api/services?q=cloud
 
 ---
 
+# Data Model
+
+The application uses PostgreSQL.
+
+Database:
+
+```text
+customer_management
+```
+
+The core business entities are:
+
+```text
++----------+
+|  leads   |
++----+-----+
+     |
+     | lead_services
+     |
+     v
++----------+
+| services |
++----+-----+
+     ^
+     |
+     | customer_services
+     |
++----+-------+
+| customers |
++----------+
+```
+
+---
+
+## Tables
+
+### `leads`
+
+Stores prospect information.
+
+Important fields:
+
+```text
+id
+name
+company
+email
+phone
+channel
+status
+score
+created_at
+updated_at
+```
+
+---
+
+### `customers`
+
+Stores customer information.
+
+Important fields:
+
+```text
+id
+name
+company
+email
+phone
+segment
+created_at
+updated_at
+```
+
+---
+
+### `services`
+
+Stores the service catalog.
+
+Important fields:
+
+```text
+id
+name
+description
+category
+status
+created_at
+updated_at
+```
+
+---
+
+### `lead_services`
+
+Many-to-many relationship between leads and services.
+
+```text
+lead_id
+service_id
+created_at
+```
+
+---
+
+### `customer_services`
+
+Many-to-many relationship between customers and services.
+
+```text
+customer_id
+service_id
+created_at
+```
+
+---
+
+# Authentication and Authorization
+
+The platform includes an Identity Service providing JWT-based authentication and role/permission management.
+
+The authorization model includes roles such as:
+
+- Super Admin
+- Operations Manager
+- Marketing Manager
+- Marketing Specialist
+- Sales Manager
+- Sales Representative
+- Customer Support Agent
+- Customer Success Manager
+
+Permissions are applied at the service/API level.
+
+---
+
+# Roles Matrix
+
+| Role                     | Leads       | Customers | Services | Users  | Organization | Own-record restriction |
+| ------------------------ | ----------- | --------- | -------- | ------ | ------------ | ---------------------- |
+| Super Admin              | Full        | Full      | Full     | Full   | Full         | No                     |
+| Operations Manager       | Full        | Full      | Full     | Manage | Manage       | No                     |
+| Marketing Manager        | Full        | Limited   | View     | No     | No           | No                     |
+| Marketing Specialist     | Create/View | Limited   | View     | No     | No           | No                     |
+| Sales Manager            | Full        | Full      | View     | Team   | No           | No                     |
+| Sales Representative     | Own         | Own       | View     | No     | No           | **Yes**                |
+| Customer Support Agent   | Limited     | View      | Full     | No     | No           | No                     |
+| Customer Success Manager | View        | Full      | View     | No     | No           | No                     |
+
+---
+
 # Docker Deployment
 
 The application is designed to run using Docker Compose.
@@ -556,7 +761,7 @@ Install:
 - Docker
 - Docker Compose
 
-Node.js 20+ is required if running the individual services without Docker.
+Node.js 20+ is required if running individual services without Docker.
 
 ---
 
@@ -574,9 +779,27 @@ Or run in detached mode:
 docker compose up --build -d
 ```
 
+Check running containers:
+
+```bash
+docker compose ps
+```
+
+View logs:
+
+```bash
+docker compose logs -f
+```
+
+View logs for a specific service:
+
+```bash
+docker compose logs -f email-service
+```
+
 ---
 
-## Open the Application
+# Application URLs
 
 Frontend:
 
@@ -590,94 +813,235 @@ API Gateway:
 http://localhost:8080
 ```
 
+Kong proxy:
+
+```text
+http://localhost:8080
+```
+
 ---
 
 # Docker Services
 
-The Docker Compose environment contains:
+The Docker Compose environment contains the following major components:
 
-| Component        | Container Port | Purpose                          |
-| ---------------- | -------------: | -------------------------------- |
-| Frontend         |           3000 | React application                |
-| Kong             |           8000 | API Gateway                      |
-| Lead Service     |           4001 | Lead management                  |
-| Customer Service |           4002 | Customer management              |
-| Service Service  |           4003 | Service catalog                  |
-| PostgreSQL       |           5432 | Database                         |
-| pgAdmin          |           5050 | Optional database administration |
+| Component         |                  Port | Purpose                          |
+| ----------------- | --------------------: | -------------------------------- |
+| Frontend          |                  3000 | React application                |
+| Kong              |                  8080 | API Gateway                      |
+| Lead Service      |                  4001 | Lead management                  |
+| Customer Service  |                  4002 | Customer management              |
+| Service Service   |                  4003 | Service catalog                  |
+| Identity Service  |                  4004 | Authentication and authorization |
+| Dashboard Service | configured in Compose | Dashboard aggregation            |
+| Email Service     | configured in Compose | Email communication              |
+| PostgreSQL        |                  5432 | Database                         |
+| Redis             | configured in Compose | Dashboard caching                |
+| pgAdmin           |                  5050 | Optional database administration |
 
-The Kong container exposes its proxy through:
+> The authoritative port configuration is `docker-compose.yml`.
+
+---
+
+# Service Dependencies
+
+The high-level dependency structure is:
 
 ```text
-localhost:8080
+                     PostgreSQL
+                         |
+          +--------------+--------------+
+          |              |              |
+          v              v              v
+    Lead Service   Customer Service  Service Service
+          |              |
+          +--------------+
+                 |
+                 v
+          Business APIs
+                 |
+                 v
+            Kong Gateway
+                 |
+        +--------+--------+
+        |                 |
+        v                 v
+    Frontend        External Clients
+
+
+       Redis
+         |
+         v
+ Dashboard Service
+
+
+ SMTP Provider
+      |
+      v
+ Email Service
+```
+
+---
+
+# Health Checks
+
+Backend services expose health endpoints.
+
+Lead Service:
+
+```http
+GET /health
+```
+
+Customer Service:
+
+```http
+GET /health
+```
+
+Service Service:
+
+```http
+GET /health
+```
+
+Example:
+
+```json
+{
+  "service": "lead-service",
+  "status": "ok",
+  "database": "postgresql"
+}
 ```
 
 ---
 
 # Project Structure
 
+The parent repository uses Git submodules for the independently maintained services.
+
 ```text
 customer-management/
 │
+├── .git/
+├── .gitmodules
+│
 ├── docker-compose.yml
+├── README.md
 │
 ├── kong/
-│   └── kong.yml
+│   └── ...
 │
 ├── lead-service/
-│   ├── Dockerfile
-│   ├── package.json
-│   └── src/
-│       └── server.js
+│   └── ...
 │
 ├── customer-service/
-│   ├── Dockerfile
-│   ├── package.json
-│   └── src/
-│       └── server.js
+│   └── ...
 │
 ├── service-service/
-│   ├── Dockerfile
-│   ├── package.json
-│   └── src/
-│       └── server.js
+│   └── ...
 │
-├── frontend/
-│   ├── Dockerfile
-│   ├── package.json
-│   ├── index.html
-│   └── src/
-│       ├── api/
-│       │   ├── client.js
-│       │   ├── leads.js
-│       │   ├── customers.js
-│       │   └── services.js
-│       │
-│       ├── components/
-│       │   ├── layout/
-│       │   ├── common/
-│       │   ├── leads/
-│       │   ├── customers/
-│       │   └── services/
-│       │
-│       ├── pages/
-│       │   ├── Leads/
-│       │   ├── Customers/
-│       │   ├── Services/
-│       │   └── NotFound/
-│       │
-│       ├── App.jsx
-│       ├── main.jsx
-│       └── styles.css
+├── identity-service/
+│   └── ...
 │
-└── README.md
+├── dashboard-service/
+│   └── ...
+│
+├── email-service/
+│   └── ...
+│
+└── frontend/
+    └── ...
 ```
+
+---
+
+# Repository Architecture
+
+The project consists of a parent repository and independent service repositories.
+
+| Local Directory       | GitHub Repository        | Purpose                          |
+| --------------------- | ------------------------ | -------------------------------- |
+| `customer-management` | `customer-management`    | Parent/orchestration repository  |
+| `customer-service`    | `customer-service`       | Customer management              |
+| `dashboard-service`   | `dashboard-service`      | Dashboard aggregation            |
+| `email-service`       | `email-service`          | Email communication              |
+| `frontend`            | `customer_mgmt_frontend` | React frontend                   |
+| `identity-service`    | `identity-service`       | Authentication and authorization |
+| `kong`                | `api_gateway`            | Kong API Gateway configuration   |
+| `lead-service`        | `lead-service`           | Lead management                  |
+| `service-service`     | `service-service`        | Service catalog                  |
+
+Each service maintains its own Git history and can be developed and deployed independently.
+
+---
+
+# Git Submodules
+
+The parent repository uses Git submodules to reference the service repositories.
+
+Check submodules:
+
+```bash
+git submodule status
+```
+
+Initialize submodules after cloning:
+
+```bash
+git submodule update --init --recursive
+```
+
+Clone the complete project:
+
+```bash
+git clone --recurse-submodules git@github.com-amit2647:amit2647/customer-management.git
+```
+
+If the parent repository has already been cloned:
+
+```bash
+git submodule update --init --recursive
+```
+
+---
+
+## Working with a Service
+
+Each service is an independent Git repository.
+
+For example:
+
+```bash
+cd email-service
+```
+
+Make changes and commit them:
+
+```bash
+git add .
+git commit -m "Add email automation"
+git push
+```
+
+Then update the parent repository's reference:
+
+```bash
+cd ..
+
+git add email-service
+git commit -m "Update email-service"
+git push
+```
+
+The child repository contains the actual service history, while the parent repository records the exact service commit used by the overall application.
 
 ---
 
 # Running Without Docker
 
-Each backend service can also be run independently.
+Each backend service can be run independently.
 
 ## Lead Service
 
@@ -757,79 +1121,13 @@ Host:     postgres
 Port:     5432
 ```
 
-The PostgreSQL data is persisted using a Docker volume:
+> For development, credentials should preferably be supplied through environment variables rather than committed directly to source control.
 
-```text
-postgres_data
-```
-
-This allows the database to survive container recreation.
-
----
-
-# Health Checks
-
-Each backend service exposes a health endpoint.
-
-Lead Service:
-
-```http
-GET /health
-```
-
-Customer Service:
-
-```http
-GET /health
-```
-
-Service Service:
-
-```http
-GET /health
-```
-
-Example response:
-
-```json
-{
-  "service": "lead-service",
-  "status": "ok",
-  "database": "postgresql"
-}
-```
-
----
-
-# Service Dependencies
-
-The Docker environment starts PostgreSQL first.
-
-The service catalog is then initialized because both Lead Service and Customer Service use the `services` table for their many-to-many mappings.
-
-The dependency structure is approximately:
-
-```text
-PostgreSQL
-    |
-    +---- Service Service
-    |
-    +---- Lead Service
-    |
-    +---- Customer Service
-             |
-             v
-         Kong Gateway
-             |
-             v
-          Frontend
-```
+PostgreSQL data is persisted using a Docker volume.
 
 ---
 
 # Architectural Principles
-
-This project demonstrates several SOA concepts.
 
 ## Service Separation
 
@@ -839,9 +1137,12 @@ Business capabilities are separated into independent services:
 Lead Service
 Customer Service
 Service Service
+Identity Service
+Email Service
+Dashboard Service
 ```
 
-Each service exposes its own REST API.
+Each service exposes its own API and encapsulates its business logic.
 
 ---
 
@@ -855,13 +1156,19 @@ Instead:
 Browser
    |
    v
-Kong
+ Kong
    |
    +---- Lead Service
    |
    +---- Customer Service
    |
    +---- Service Service
+   |
+   +---- Identity Service
+   |
+   +---- Dashboard Service
+   |
+   +---- Email Service
 ```
 
 This creates a stable API boundary.
@@ -902,7 +1209,7 @@ For example, lead conversion performs:
 ```text
 BEGIN
   |
-  +-- Create/find customer
+  +-- Create customer
   |
   +-- Copy service mappings
   |
@@ -921,23 +1228,30 @@ This prevents partially completed conversions.
 
 ---
 
-# Academic Purpose
+# Purpose
 
-This project is intended as an academic demonstration of:
+This project is intended as an demonstration of:
 
 - Service-Oriented Architecture
 - Microservice-style decomposition
 - API Gateway patterns
 - RESTful APIs
+- JWT authentication
+- Role-based access control
 - Database persistence
 - Relational data modelling
 - Many-to-many relationships
 - Transaction management
 - Docker containerization
+- Docker Compose
 - Frontend/backend separation
+- Service-to-service communication
+- Email communication
+- Caching with Redis
 - Business workflow implementation
+- Git submodule-based multi-repository architecture
 
-It is an MVP and is not intended to represent a production-ready enterprise CRM.
+It is an MVP and is **not intended to represent a production-ready enterprise CRM**.
 
 ---
 
@@ -945,26 +1259,54 @@ It is an MVP and is not intended to represent a production-ready enterprise CRM.
 
 Potential future enhancements include:
 
-- Authentication and authorization
-- Role-based access control
-- JWT-based security
-- Customer activity timeline
-- Email and SMS communication tracking
+### Communication
+
+- Email communication history
+- Email automation
+- Scheduled emails
+- Lead nurturing workflows
+- SMS integration
+- WhatsApp integration
 - Omni-channel interaction history
+- Communication templates
+- Event-triggered communication
+
+### CRM
+
 - Lead assignment to sales representatives
 - Customer lifecycle management
-- Audit logging
-- Pagination
-- Advanced filtering
+- Customer activity timeline
+- Opportunity management
+- Tasks and reminders
+- Advanced lead scoring
+
+### Platform
+
 - API rate limiting
 - Centralized observability
 - Distributed tracing
 - Message broker integration
-- Event-driven lead conversion
+- Event-driven architecture
 - Dedicated database per service
 - Service-to-service authentication
 - Automated testing
 - CI/CD pipeline
+- Kubernetes deployment
+- Secrets management
+
+### AI
+
+Potential future AI capabilities include:
+
+- AI lead qualification
+- Lead scoring recommendations
+- Customer insights
+- Email generation
+- Automated email follow-ups
+- Conversational CRM assistant
+- Natural-language CRM operations
+- AI-powered dashboard insights
+- MCP-based application agent
 
 ---
 
@@ -975,31 +1317,23 @@ Potential future enhancements include:
 | Frontend                | React                |
 | Build Tool              | Vite                 |
 | Routing                 | React Router         |
+| Language                | JavaScript           |
 | Backend                 | Node.js              |
 | API Framework           | Express              |
 | API Gateway             | Kong                 |
 | Database                | PostgreSQL           |
 | Database Driver         | node-postgres (`pg`) |
+| Cache                   | Redis                |
+| Authentication          | JWT                  |
 | Containerization        | Docker               |
 | Orchestration           | Docker Compose       |
 | Database Administration | pgAdmin              |
+| Email                   | SMTP                 |
+| Version Control         | Git                  |
+| Repository Architecture | Git Submodules       |
 
 ---
 
-# Roles Matrix
-
-| Role                     | Leads       | Customers | Services | Users  | Organization | Own-record restriction |
-| ------------------------ | ----------- | --------- | -------- | ------ | ------------ | ---------------------- |
-| Super Admin              | Full        | Full      | Full     | Full   | Full         | No                     |
-| Operations Manager       | Full        | Full      | Full     | Manage | Manage       | No                     |
-| Marketing Manager        | Full        | Limited   | View     | No     | No           | No                     |
-| Marketing Specialist     | Create/View | Limited   | View     | No     | No           | No                     |
-| Sales Manager            | Full        | Full      | View     | Team   | No           | No                     |
-| Sales Representative     | Own         | Own       | View     | No     | No           | **Yes**                |
-| Customer Support Agent   | Limited     | View      | Full     | No     | No           | No                     |
-| Customer Success Manager | View        | Full      | View     | No     | No           | No                     |
-
-
 # License
 
-This project is an academic MVP created for educational and demonstration purposes.
+This project is an MVP created for educational and demonstration purposes.
