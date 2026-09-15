@@ -202,6 +202,29 @@ services:
 
     restart: unless-stopped
 
+  smtp-service:
+    build:
+      context: ./smtp-service
+    container_name: smtp-service
+    restart: unless-stopped
+
+    environment:
+      PORT: 4006
+
+      SMTP_HOST: smtp.gmail.com
+      SMTP_PORT: 587
+      SMTP_SECURE: "false"
+
+      SMTP_USER: ${SMTP_USER}
+      SMTP_PASSWORD: ${SMTP_PASSWORD}
+      SMTP_FROM: ${SMTP_FROM}
+
+    ports:
+      - "4006:4006"
+
+    networks:
+      - default
+
   kong:
     image: kong:3.9
     container_name: customer-management-kong
