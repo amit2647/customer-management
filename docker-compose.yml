@@ -225,25 +225,6 @@ services:
       JWT_SECRET: omnicore-development-secret-change-this
       JWT_ISSUER: omnicore-identity-service
 
-      # SMTP / Gmail
-      SMTP_HOST: smtp.gmail.com
-      SMTP_PORT: 587
-      SMTP_SECURE: "false"
-      SMTP_USER: ${SMTP_USER}
-      SMTP_PASSWORD: ${SMTP_PASSWORD}
-      SMTP_FROM: ${SMTP_FROM}
-
-      # IMAP / Gmail
-      IMAP_HOST: imap.gmail.com
-      IMAP_PORT: 993
-      IMAP_SECURE: "true"
-      IMAP_USER: ${SMTP_USER}
-      IMAP_PASSWORD: ${SMTP_PASSWORD}
-      IMAP_MAILBOX: INBOX
-
-      # Temporary 
-      EMAIL_ORGANIZATION_ID: 1
-
       # Redis
       REDIS_URL: redis://redis:6379
 
