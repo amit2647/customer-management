@@ -1,0 +1,51 @@
+# Override for cold-start testing in a throwaway project:
+#
+#   docker compose -p cmcold -f docker-compose.yml -f docker-compose.cold.yml up --build
+#   docker compose -p cmcold down -v
+#
+# -p gives the stack its own volumes, so a fresh database can be proven to converge
+# without touching the main project's postgres_data. Published ports and fixed
+# container names are removed here so both stacks can run side by side.
+
+services:
+  postgres:
+    container_name: !reset null
+
+  redis:
+    container_name: !reset null
+    ports: !reset []
+
+  migrate:
+    container_name: !reset null
+
+  service-service:
+    container_name: !reset null
+    ports: !reset []
+
+  customer-service:
+    container_name: !reset null
+    ports: !reset []
+
+  lead-service:
+    container_name: !reset null
+    ports: !reset []
+
+  identity-service:
+    container_name: !reset null
+    ports: !reset []
+
+  dashboard-service:
+    container_name: !reset null
+    ports: !reset []
+
+  email-service:
+    container_name: !reset null
+    ports: !reset []
+
+  kong:
+    container_name: !reset null
+    ports: !reset []
+
+  frontend:
+    container_name: !reset null
+    ports: !reset []

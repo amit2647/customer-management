@@ -22,3 +22,6 @@
 [submodule "service-service"]
 	path = service-service
 	url = git@github.com-amit2647:amit2647/service-service.git
+[submodule "migrations"]
+	path = migrations
+	url = git@github.com-amit2647:amit2647/migrations.git
