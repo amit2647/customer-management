@@ -105,8 +105,10 @@ serves traffic.
 - `seed.js` runs on every start, outside the ledger, so a half-bootstrapped DB self-heals. It
   resolves the organization by `BOOTSTRAP_ORG_SLUG` (then lowest id, then creates one), creates the
   admin user only if that email is absent — it never overwrites an existing `password_hash` — grants
-  SUPER_ADMIN membership, and seeds the default services against the *resolved* org id. The demo
-  lead sits behind `SEED_DEMO_DATA` (default false). `BOOTSTRAP_*` vars are documented in
+  SUPER_ADMIN membership, and seeds the default services against the *resolved* org id. Demo data
+  sits behind `SEED_DEMO_DATA` (default **true** — set `false` for a real deployment): two leads and one customer converted from the
+  first, reproducing `convertLead`'s footprint since no column links a lead to its customer. It
+  only runs on a database with no leads and no customers. `BOOTSTRAP_*` vars are documented in
   `.env.example`.
 - To prove a from-scratch boot without destroying local data, use the throwaway parallel stack:
   `docker compose -p cmcold -f docker-compose.yml -f docker-compose.cold.yml up --build`, then

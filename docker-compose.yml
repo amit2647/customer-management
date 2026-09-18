@@ -48,7 +48,7 @@ services:
       BOOTSTRAP_ADMIN_NAME: "${BOOTSTRAP_ADMIN_NAME:-Admin}"
       BOOTSTRAP_ADMIN_EMAIL: "${BOOTSTRAP_ADMIN_EMAIL:-admin@acme.example}"
       BOOTSTRAP_ADMIN_PASSWORD: "${BOOTSTRAP_ADMIN_PASSWORD:-ChangeMe123!}"
-      SEED_DEMO_DATA: "${SEED_DEMO_DATA:-false}"
+      SEED_DEMO_DATA: "${SEED_DEMO_DATA:-true}"
     depends_on:
       postgres:
         condition: service_healthy
