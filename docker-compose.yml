@@ -101,6 +101,7 @@ services:
       JWT_SECRET: omnicore-development-secret-change-this
       JWT_ISSUER: omnicore-identity-service
       SERVICE_SERVICE_URL: http://service-service:4003
+      EMAIL_SERVICE_URL: http://email-service:4006
     depends_on:
       postgres:
         condition: service_healthy
@@ -137,6 +138,7 @@ services:
       JWT_ISSUER: omnicore-identity-service
       CUSTOMER_SERVICE_URL: http://customer-service:4002
       SERVICE_SERVICE_URL: http://service-service:4003
+      EMAIL_SERVICE_URL: http://email-service:4006
     depends_on:
       postgres:
         condition: service_healthy
