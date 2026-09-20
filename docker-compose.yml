@@ -202,6 +202,13 @@ services:
     environment:
       PORT: 4005
 
+      # Needed only to read active access grants when authenticating a request.
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: customer_management
+      DB_USER: app_user
+      DB_PASSWORD: app_password
+
       JWT_SECRET: omnicore-development-secret-change-this
       JWT_ISSUER: omnicore-identity-service
 
@@ -212,6 +219,8 @@ services:
       REDIS_URL: redis://redis:6379
 
     depends_on:
+      postgres:
+        condition: service_healthy
       redis:
         condition: service_healthy
       lead-service:
