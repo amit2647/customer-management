@@ -291,6 +291,62 @@ services:
       retries: 10
       start_period: 10s
 
+  assistant-service:
+    build:
+      context: ./assistant-service
+    container_name: customer-management-assistant-service
+    restart: unless-stopped
+
+    ports:
+      - "4007:4007"
+
+    environment:
+      PORT: 4007
+
+      # Only used to read active just-in-time grants when authenticating.
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: customer_management
+      DB_USER: app_user
+      DB_PASSWORD: app_password
+
+      JWT_SECRET: omnicore-development-secret-change-this
+      JWT_ISSUER: omnicore-identity-service
+
+      # Every tool is a call onto one of these, made with the signed-in user's
+      # own token, so each service applies its usual permission checks.
+      LEAD_SERVICE_URL: http://lead-service:4001
+      CUSTOMER_SERVICE_URL: http://customer-service:4002
+      SERVICE_SERVICE_URL: http://service-service:4003
+      DASHBOARD_SERVICE_URL: http://dashboard-service:4005
+      EMAIL_SERVICE_URL: http://email-service:4006
+
+      OPENROUTER_API_KEY: "${OPENROUTER_API_KEY:-}"
+      OPENROUTER_MODEL: "${OPENROUTER_MODEL:-}"
+      OPENROUTER_MAX_TOKENS: "${OPENROUTER_MAX_TOKENS:-1024}"
+      PUBLIC_APP_URL: "${PUBLIC_APP_URL:-http://localhost:3000}"
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      lead-service:
+        condition: service_healthy
+      customer-service:
+        condition: service_healthy
+
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget --no-verbose --tries=1 --spider http://localhost:4007/health || exit 1",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
   kong:
     image: kong:3.9
     container_name: customer-management-kong
@@ -315,6 +371,8 @@ services:
       service-service:
         condition: service_healthy
       identity-service:
+        condition: service_started
+      assistant-service:
         condition: service_started
 
   frontend:
