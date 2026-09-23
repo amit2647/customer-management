@@ -4,7 +4,7 @@ MVP demonstrating a **Service-Oriented Architecture (SOA)** for customer and lea
 
 The platform demonstrates how an **API Gateway** can provide a stable frontend-facing API while independent backend services manage separate business capabilities.
 
-The project is organized as a **multi-repository architecture**. Each service is maintained as an independent Git repository, while the `customer-management` repository acts as the parent repository and uses **Git submodules** to assemble the complete application.
+The project is organized as a **multi-repository architecture**. Each service is maintained as an independent Git repository, while the `customer-management` repository acts as the parent repository and uses **Git submodules** to assemble the complete application from ten of them.
 
 ---
 
@@ -56,21 +56,22 @@ The Email Service provides email as a communication channel for leads and custom
 Current capabilities include:
 
 - SMTP-based email delivery
+- IMAP-based inbound mail, threaded onto the originating record
+- Email composed and replied to from a lead or customer record
+- Communication history on each record
+- Email templates with `{{lead.name}}`-style placeholders
+- Email automations triggered by `lead.created`, `lead.converted` and
+  `customer.created`, delivered through a durable queue with retry and dedupe
 - Email API
-- Customer/lead communication support
-- Email templates
-- Separate email service
-- Extensible architecture for future email automation
+
+Automations ship seeded but **disabled**, because they send real mail from the
+organization's real mailbox and must be opted into.
 
 Future email capabilities can include:
 
-- Automated follow-up emails
-- Welcome emails
-- Lead nurturing sequences
-- Customer notifications
 - Scheduled emails
-- Event-triggered email automation
-- Email communication history
+- Lead nurturing sequences
+- SMS and WhatsApp channels
 
 ### Dashboard
 
@@ -93,9 +94,54 @@ Responsibilities include:
 - JWT-based authentication
 - User management
 - Organization management
-- Role management
+- Role management, including custom roles scoped to an organization
 - Permission management
 - Role-based access control
+
+### Just-in-Time Access
+
+Temporary, auditable access to a single screen without changing anyone's role.
+
+- Grant one or more permissions to a user for a fixed period (5 minutes to 24 hours)
+- A reason is mandatory, so every grant is auditable
+- Grants are read **live on every request** rather than trusted from the token:
+  revoking one stops it working immediately, without the holder signing out
+- Revoking stamps the row rather than deleting it, preserving the audit trail
+
+### Guest Access
+
+The same mechanism extended to people who have no account at all.
+
+- Grant access to an email address; a one-time invite link is produced
+- Opening the link materialises a guest user and starts a session whose token
+  carries **no baseline permissions** — everything comes from the live grant
+- The link dies exactly when the grant expires or is revoked
+- Only a hash of the invite token is stored
+
+### AI Assistant
+
+An in-product assistant that answers questions about the organization's own
+data and performs operations on the user's behalf.
+
+- Available from the header on every screen
+- Answers only from live data, retrieved through tools
+- Confined to the product: off-topic questions are declined
+- Constrained to the signed-in user's permissions — the tool catalog is
+  filtered before the model is invoked, so the assistant has no vocabulary for
+  features the user cannot access
+- Changes are never applied on the model's say-so: they are shown for
+  confirmation first, and destructive ones are marked
+- The same catalog is served over **MCP**, so an external MCP client can drive
+  the product with the same JWT
+
+### Schema Migrations
+
+Schema is owned by a dedicated `migrations` repository, never by the services.
+
+- Ordered, checksummed SQL files applied under a PostgreSQL advisory lock
+- A `schema_migrations` ledger, so applied files are never re-run
+- Services are gated behind the migration run completing successfully
+- A seed that is safe to re-run on every boot and never overwrites existing data
 
 ---
 
@@ -138,37 +184,48 @@ The conversion operation is performed transactionally so that the customer creat
                                  |
                                  | REST API
                                  v
-                         +---------------+
-                         |     Kong      |
-                         | API Gateway   |
-                         |    :8080      |
-                         +-------+-------+
-                                 |
-             +-------------------+-------------------+
-             |          |          |        |        |
-             v          v          v        v        v
-       +---------+ +---------+ +---------+ +------+ +---------+
-       |  Lead   | |Customer | | Service | |Email | |Identity |
-       | Service | | Service | | Service | |Service| | Service |
-       |  :4001  | |  :4002  | |  :4003  | | :4006 | |  :4004 |
-       +----+----+ +----+----+ +----+----+ +------+ +---------+
-            |           |           |
-            +-----------+-----------+
-                        |
-                        v
-                 +-------------+
-                 | PostgreSQL  |
-                 |     DB      |
-                 +-------------+
+      External      +---------------+
+      MCP client -->|     Kong      |
+                    | API Gateway   |
+                    |    :8080      |
+                    +-------+-------+
+                            |
+     +---------+---------+--+------+---------+-----------+
+     |         |         |         |         |           |
+     v         v         v         v         v           v
+ +-------+ +--------+ +-------+ +--------+ +-------+ +-----------+
+ | Lead  | |Customer| |Service| |Identity| |Email  | | Assistant |
+ | :4001 | | :4002  | | :4003 | | :4004  | | :4006 | |   :4007   |
+ +---+---+ +---+----+ +---+---+ +---+----+ +---+---+ +-----+-----+
+     |         |          |         |          |           |
+     |         |          |         |          |           | tools call
+     |         |          |         |          |           | back through
+     |         |          |         |          |           | these services
+     |         |          |         |          |           | as the user
+     +---------+----------+----+----+----------+-----------+
+                               |
+                               v
+                        +-------------+          +-------------+
+                        | PostgreSQL  |<---------|   migrate   |
+                        |     DB      |  owns    | (runs once, |
+                        +-------------+  schema  |  then exits)|
+                                                 +-------------+
 
-                         +-------------+
-                         |    Redis    |
-                         |   Cache     |
-                         +-------------+
-                                |
-                                v
-                        Dashboard Service
+                        +-------------+
+                        |    Redis    |
+                        |   Cache     |
+                        +------+------+
+                               |
+                               v
+                     Dashboard Service :4005
 ```
+
+Every service starts only after `migrate` has exited successfully, so the schema
+always exists before anything serves traffic.
+
+The Assistant Service holds no business logic of its own: each of its tools is a
+call onto one of the other services, made with the signed-in user's own token,
+so those services apply their usual permission checks.
 
 > Port numbers are based on the current Docker Compose configuration. Verify `docker-compose.yml` if ports are changed.
 
@@ -203,6 +260,11 @@ The application separates business capabilities into independent services.
      +-----------+       +-----------+
      | Identity  |       | Dashboard |
      | Service   |       | Service   |
+     +-----------+       +-----------+
+
+     +-----------+       +-----------+
+     | Assistant |       | Migrations|
+     | Service   |       | (schema)  |
      +-----------+       +-----------+
 ```
 
@@ -389,6 +451,8 @@ service-service
 
 ## Identity Service
 
+**Port:** `4004`
+
 The Identity Service provides authentication and authorization.
 
 Responsibilities:
@@ -398,9 +462,28 @@ Responsibilities:
 - Authentication
 - User management
 - Organization management
-- Role management
+- Role management, including custom roles
 - Permission management
 - Authorization
+- Just-in-time access grants
+- Guest invite issue and redemption
+
+Main API:
+
+```http
+POST   /auth/login
+GET    /auth/me
+GET    /users/:id
+POST   /users
+GET    /roles
+POST   /roles
+GET    /permissions
+GET    /organizations/:id/users
+GET    /access-grants
+POST   /access-grants
+POST   /access-grants/:id/revoke
+POST   /access-grants/redeem      (unauthenticated: the token is the credential)
+```
 
 Repository:
 
@@ -412,16 +495,36 @@ identity-service
 
 ## Email Service
 
+**Port:** `4006`
+
 The Email Service provides email-based communication capabilities.
 
 Responsibilities:
 
-- SMTP configuration
-- Email sending
+- SMTP configuration and delivery
+- IMAP polling for inbound replies
+- Email sending and in-thread replies
+- Communication history per lead/customer
 - Email templates
-- Lead communication
-- Customer communication
-- Email service APIs
+- Email automations and their durable event queue
+
+Main API:
+
+```http
+POST   /emails/send
+POST   /emails/conversations/:id/reply
+GET    /emails/communications
+GET    /emails/templates
+POST   /emails/templates
+GET    /emails/automations
+POST   /emails/automations
+POST   /emails/automations/trigger
+```
+
+Automation events are persisted on receipt and processed by a background runner
+that claims due rows with `FOR UPDATE SKIP LOCKED`, retries with exponential
+backoff, and de-duplicates on a `dedupe_key` so a producer retry cannot send a
+second welcome email.
 
 Repository:
 
@@ -429,18 +532,18 @@ Repository:
 email-service
 ```
 
-The service is designed to evolve into a broader communication service supporting email automation and communication workflows.
-
 ---
 
 ## Dashboard Service
+
+**Port:** `4005`
 
 The Dashboard Service provides aggregated dashboard data.
 
 Responsibilities:
 
 - Dashboard metrics
-- Data aggregation
+- Data aggregation across the lead, customer and service APIs
 - Redis caching
 - Dashboard API
 
@@ -448,6 +551,73 @@ Repository:
 
 ```text
 dashboard-service
+```
+
+---
+
+## Assistant Service
+
+**Port:** `4007`
+
+The Assistant Service hosts the in-product AI assistant and an MCP server over a
+single tool catalog.
+
+Responsibilities:
+
+- Chat API for the in-product assistant
+- MCP server exposing the product's operations
+- Tool catalog covering leads, customers, services, dashboard and email
+- Permission-scoped tool exposure
+- Confirmation gating for anything that changes data
+
+Main API:
+
+```http
+POST   /assistant/chat
+GET    /assistant/capabilities
+POST   /mcp                        (MCP over HTTP)
+```
+
+It holds no business logic and touches no business tables. Every tool is an HTTP
+call onto the owning service carrying the signed-in user's bearer token, so
+authorization is decided in exactly one place — the service that owns the data.
+It reads the database only to resolve active just-in-time grants when
+authenticating a request.
+
+The model is reached through **OpenRouter**, configured with
+`OPENROUTER_API_KEY` and `OPENROUTER_MODEL`. Without a key the assistant returns
+503 and the rest of the product is unaffected.
+
+Repository:
+
+```text
+assistant-service
+```
+
+---
+
+## Migrations
+
+The `migrations` repository owns the database schema. It is not a long-running
+service: the `migrate` container runs to completion and exits, and every
+DB-backed service is gated behind it with
+`condition: service_completed_successfully`.
+
+Responsibilities:
+
+- Ordered, checksummed SQL migrations
+- A `schema_migrations` ledger
+- Advisory-lock coordination, so concurrent starts cannot race
+- Bootstrap and demo seeding
+
+To change the schema, add a new numbered file to `migrations/sql/` — an applied
+file is never edited, and a changed checksum logs a warning rather than
+re-applying.
+
+Repository:
+
+```text
+migrations
 ```
 
 ---
@@ -598,6 +768,62 @@ GET /api/services?q=cloud
 
 ---
 
+## Ask the Assistant
+
+```http
+POST /api/assistant/chat
+Content-Type: application/json
+Authorization: Bearer <token>
+```
+
+```json
+{
+  "messages": [{ "role": "user", "content": "How many leads do I have?" }]
+}
+```
+
+The conversation is sent whole on each turn; the service keeps no session.
+
+A response either answers, or asks for confirmation before changing anything:
+
+```json
+{
+  "reply": "",
+  "steps": [],
+  "pendingAction": {
+    "name": "create_lead",
+    "arguments": { "name": "Priya Nair", "company": "Kestrel Analytics" },
+    "summary": "Create lead \"Priya Nair\" at Kestrel Analytics.",
+    "destructive": false
+  }
+}
+```
+
+Nothing has been written at this point. To apply it, send the same request again
+with the action echoed back under `confirm`. The service re-checks the caller's
+permission rather than trusting the returned payload.
+
+---
+
+## Using the MCP Server
+
+The same tool catalog is available over MCP at `/api/mcp`, authenticated with an
+ordinary product JWT:
+
+```bash
+curl -X POST http://localhost:8080/api/mcp \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+```
+
+The tools returned are scoped to that token's permissions: a user holding only
+`leads.read` is offered `list_leads` and `get_lead` and nothing else, and calling
+an unlisted tool is refused rather than attempted.
+
+---
+
 # Data Model
 
 The application uses PostgreSQL.
@@ -716,6 +942,25 @@ created_at
 
 ---
 
+## Other Tables
+
+All services share the one `customer_management` database — there is no
+per-service database isolation in this MVP. Alongside the business entities
+above, the schema holds:
+
+| Group    | Tables                                                                    |
+| -------- | ------------------------------------------------------------------------- |
+| Identity | `organizations`, `users`, `roles`, `permissions`, `role_permissions`, `organization_users` |
+| Access   | `access_grants` (just-in-time and guest access)                           |
+| Email    | `email_accounts`, `email_conversations`, `communications`, `email_templates`, `email_automations`, `automation_events` |
+| Schema   | `schema_migrations` (the migration ledger)                                |
+
+`services` is owned by the Service Service but referenced by `lead_services` and
+`customer_services`, which belong to other services — a shortcut this MVP takes
+knowingly.
+
+---
+
 # Authentication and Authorization
 
 The platform includes an Identity Service providing JWT-based authentication and role/permission management.
@@ -731,7 +976,20 @@ The authorization model includes roles such as:
 - Customer Support Agent
 - Customer Success Manager
 
-Permissions are applied at the service/API level.
+Permissions are baked into the JWT at login. Every service verifies the token
+independently, with no call back to the Identity Service per request.
+
+Two things are deliberately *not* taken from the token:
+
+- **Just-in-time grants** are read from the database on every request and merged
+  into the caller's permissions. A token cannot be revoked, so a grant that were
+  trusted from the token would keep working for the token's full eight hours
+  after being withdrawn.
+- **Organization scoping** is derived from `req.auth.organizationId`, never from
+  client-supplied input.
+
+Grants are additive only: if the lookup fails, the request proceeds with the
+token's own permissions, which errs toward denying access.
 
 ---
 
@@ -773,6 +1031,14 @@ From the project root:
 docker compose up --build
 ```
 
+On first start the `migrate` container applies the schema and exits; the
+DB-backed services wait for it to finish before starting. Re-running migrations
+on their own is safe and idempotent:
+
+```bash
+docker compose up migrate
+```
+
 Or run in detached mode:
 
 ```bash
@@ -796,6 +1062,46 @@ View logs for a specific service:
 ```bash
 docker compose logs -f email-service
 ```
+
+---
+
+# Configuration
+
+Copy `.env.example` to `.env` at the project root. Every value has a working
+default, so the stack starts without editing anything — except the assistant,
+which needs a key.
+
+| Variable                   | Purpose                                                        |
+| -------------------------- | -------------------------------------------------------------- |
+| `BOOTSTRAP_ORG_NAME`       | Organization created on an empty database                        |
+| `BOOTSTRAP_ORG_SLUG`       | Slug used to resolve the organization on every boot              |
+| `BOOTSTRAP_ADMIN_EMAIL`    | First admin user; an existing user is never overwritten          |
+| `BOOTSTRAP_ADMIN_PASSWORD` | Password for that user, on first creation only                   |
+| `SEED_DEMO_DATA`           | Seeds two leads and one converted customer. Set `false` for real use |
+| `OPENROUTER_API_KEY`       | Enables the AI assistant. Empty means the assistant returns 503  |
+| `OPENROUTER_MODEL`         | Any OpenRouter model with tool-calling                           |
+| `OPENROUTER_MAX_TOKENS`    | Reply cap, default `1024`                                        |
+
+> Values exported in your shell take precedence over `.env`. A key set in the
+> environment will be used even if the `.env` line looks empty.
+
+Demo seeding only runs on a database with no leads and no customers, so it never
+touches a database already in use. The bootstrap seed runs on every start,
+outside the migration ledger, so a half-bootstrapped database repairs itself.
+
+---
+
+## Proving a From-Scratch Boot
+
+To verify a cold start without destroying local data, use the throwaway parallel
+stack rather than `down -v`:
+
+```bash
+docker compose -p cmcold -f docker-compose.yml -f docker-compose.cold.yml up --build
+docker compose -p cmcold down -v
+```
+
+The override strips `container_name` and `ports` so both stacks can run at once.
 
 ---
 
@@ -825,19 +1131,24 @@ http://localhost:8080
 
 The Docker Compose environment contains the following major components:
 
-| Component         |                  Port | Purpose                          |
-| ----------------- | --------------------: | -------------------------------- |
-| Frontend          |                  3000 | React application                |
-| Kong              |                  8080 | API Gateway                      |
-| Lead Service      |                  4001 | Lead management                  |
-| Customer Service  |                  4002 | Customer management              |
-| Service Service   |                  4003 | Service catalog                  |
-| Identity Service  |                  4004 | Authentication and authorization |
-| Dashboard Service | configured in Compose | Dashboard aggregation            |
-| Email Service     | configured in Compose | Email communication              |
-| PostgreSQL        |                  5432 | Database                         |
-| Redis             | configured in Compose | Dashboard caching                |
-| pgAdmin           |                  5050 | Optional database administration |
+| Component         |     Host port | Purpose                            |
+| ----------------- | ------------: | ---------------------------------- |
+| Frontend          |          3000 | React application                  |
+| Kong              |          8080 | API Gateway (container port 8000)  |
+| Lead Service      |          4001 | Lead management                    |
+| Customer Service  |          4002 | Customer management                |
+| Service Service   |          4003 | Service catalog                    |
+| Identity Service  |          4004 | Authentication and authorization   |
+| Dashboard Service |          4005 | Dashboard aggregation              |
+| Email Service     |          4006 | Email communication                |
+| Assistant Service |          4007 | AI assistant and MCP server        |
+| migrate           |    — one-shot | Applies the schema, then exits     |
+| PostgreSQL        |  — not published | Database (internal network only) |
+| Redis             |          6379 | Dashboard caching                  |
+
+The backend ports are published for debugging only. The frontend and all
+service-to-service calls go through the gateway or internal Docker DNS
+(`http://<service-name>:<port>`), never `localhost`.
 
 > The authoritative port configuration is `docker-compose.yml`.
 
@@ -848,71 +1159,71 @@ The Docker Compose environment contains the following major components:
 The high-level dependency structure is:
 
 ```text
+                      migrate
+                         |  applies the schema, then exits
+                         v
                      PostgreSQL
                          |
-          +--------------+--------------+
-          |              |              |
-          v              v              v
-    Lead Service   Customer Service  Service Service
-          |              |
-          +--------------+
-                 |
-                 v
-          Business APIs
-                 |
-                 v
-            Kong Gateway
-                 |
-        +--------+--------+
-        |                 |
-        v                 v
-    Frontend        External Clients
+       +-----------+-----+-----+-----------+
+       |           |           |           |
+       v           v           v           v
+ Lead Service  Customer   Service      Identity
+                Service   Service      Service
+       |           |           |           |
+       +-----------+-----+-----+-----------+
+                         |
+                         v
+                   Business APIs
+                         |
+                         v
+                    Kong Gateway
+                         |
+             +-----------+-----------+
+             |                       |
+             v                       v
+         Frontend            External Clients
+                                     |
+                                     v
+                              MCP clients
+                                     |
+                                     v
+                            Assistant Service
+                                     |
+                       calls the business APIs
+                       as the signed-in user
 
 
-       Redis
-         |
-         v
- Dashboard Service
-
-
- SMTP Provider
-      |
-      v
- Email Service
+       Redis                  SMTP / IMAP           OpenRouter
+         |                         |                    |
+         v                         v                    v
+ Dashboard Service           Email Service       Assistant Service
 ```
 
 ---
 
 # Health Checks
 
-Backend services expose health endpoints.
-
-Lead Service:
+Every backend service exposes:
 
 ```http
 GET /health
 ```
 
-Customer Service:
+Docker Compose polls these, and dependent services wait on them.
 
-```http
-GET /health
-```
-
-Service Service:
-
-```http
-GET /health
-```
-
-Example:
+The response always carries the service name and status; some services add a
+detail of their own:
 
 ```json
-{
-  "service": "lead-service",
-  "status": "ok",
-  "database": "postgresql"
-}
+{ "status": "ok", "service": "lead-service" }
+```
+
+```json
+{ "service": "identity-service", "status": "ok", "database": "postgresql" }
+```
+
+```json
+{ "service": "dashboard-service", "status": "ok", "architecture": "aggregation-service" }
 ```
 
 ---
@@ -930,7 +1241,15 @@ customer-management/
 ├── docker-compose.yml
 ├── README.md
 │
-├── kong/
+├── .env                 (not committed)
+├── .env.example
+├── docker-compose.yml
+├── docker-compose.cold.yml
+│
+├── kong/                (api_gateway)
+│   └── ...
+│
+├── migrations/          (schema + seed)
 │   └── ...
 │
 ├── lead-service/
@@ -951,9 +1270,15 @@ customer-management/
 ├── email-service/
 │   └── ...
 │
-└── frontend/
+├── assistant-service/   (AI assistant + MCP)
+│   └── ...
+│
+└── frontend/            (customer_mgmt_frontend)
     └── ...
 ```
+
+The parent repository holds only `docker-compose.yml`, the environment files and
+this README. All application code lives in the submodules.
 
 ---
 
@@ -972,8 +1297,14 @@ The project consists of a parent repository and independent service repositories
 | `kong`                | `api_gateway`            | Kong API Gateway configuration   |
 | `lead-service`        | `lead-service`           | Lead management                  |
 | `service-service`     | `service-service`        | Service catalog                  |
+| `migrations`          | `migrations`             | Schema migrations and seed       |
+| `assistant-service`   | `assistant-service`      | AI assistant and MCP server      |
 
 Each service maintains its own Git history and can be developed and deployed independently.
+
+Note that two directory names differ from their repository names: `frontend` is
+`customer_mgmt_frontend`, and `kong` is `api_gateway`. The mapping is recorded in
+`.gitmodules`.
 
 ---
 
@@ -1041,7 +1372,12 @@ The child repository contains the actual service history, while the parent repos
 
 # Running Without Docker
 
-Each backend service can be run independently.
+Each backend service can be run independently, provided `DB_HOST`, `JWT_SECRET`
+and the other variables match `docker-compose.yml`, and the schema has already
+been applied by the migration runner.
+
+There are no test suites, linters or formatters configured in any repository —
+`npm test` and `eslint` do not exist here.
 
 ## Lead Service
 
@@ -1087,6 +1423,22 @@ Runs on:
 
 ```text
 http://localhost:4003
+```
+
+---
+
+## Assistant Service
+
+```bash
+cd assistant-service
+npm install
+npm start
+```
+
+Runs on:
+
+```text
+http://localhost:4007
 ```
 
 ---
@@ -1140,6 +1492,7 @@ Service Service
 Identity Service
 Email Service
 Dashboard Service
+Assistant Service
 ```
 
 Each service exposes its own API and encapsulates its business logic.
@@ -1169,6 +1522,8 @@ Browser
    +---- Dashboard Service
    |
    +---- Email Service
+   |
+   +---- Assistant Service
 ```
 
 This creates a stable API boundary.
@@ -1249,6 +1604,9 @@ This project is intended as an demonstration of:
 - Email communication
 - Caching with Redis
 - Business workflow implementation
+- Just-in-time and guest access control
+- LLM tool-calling constrained by user permissions
+- MCP server implementation
 - Git submodule-based multi-repository architecture
 
 It is an MVP and is **not intended to represent a production-ready enterprise CRM**.
@@ -1261,15 +1619,16 @@ Potential future enhancements include:
 
 ### Communication
 
-- Email communication history
-- Email automation
+Implemented: communication history, email automation, communication templates
+and event-triggered communication — see **Email Service**.
+
+Potential further capabilities include:
+
 - Scheduled emails
-- Lead nurturing workflows
+- Lead nurturing sequences (automations currently start a new thread each time)
 - SMS integration
 - WhatsApp integration
 - Omni-channel interaction history
-- Communication templates
-- Event-triggered communication
 
 ### CRM
 
@@ -1296,17 +1655,18 @@ Potential future enhancements include:
 
 ### AI
 
-Potential future AI capabilities include:
+Implemented: a conversational CRM assistant, natural-language CRM operations and
+an MCP-based application agent — see **Assistant Service**.
+
+Potential further AI capabilities include:
 
 - AI lead qualification
 - Lead scoring recommendations
 - Customer insights
-- Email generation
-- Automated email follow-ups
-- Conversational CRM assistant
-- Natural-language CRM operations
+- AI-drafted email replies
 - AI-powered dashboard insights
-- MCP-based application agent
+- Streaming responses in the assistant panel
+- Server-side conversation history
 
 ---
 
@@ -1327,8 +1687,10 @@ Potential future AI capabilities include:
 | Authentication          | JWT                  |
 | Containerization        | Docker               |
 | Orchestration           | Docker Compose       |
-| Database Administration | pgAdmin              |
-| Email                   | SMTP                 |
+| Email                   | SMTP and IMAP        |
+| AI provider             | OpenRouter           |
+| Agent protocol          | Model Context Protocol (MCP) |
+| Schema migrations       | Custom runner (SQL + ledger) |
 | Version Control         | Git                  |
 | Repository Architecture | Git Submodules       |
 
