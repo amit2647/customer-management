@@ -35,4 +35,4 @@
     url = https://github.com/amit2647/migrations.git
 [submodule "assistant-service"]
     path = assistant-service
-    url = https://github.com/amit2647/assistent-service.git
+    url = https://github.com/amit2647/assistant-service.git
