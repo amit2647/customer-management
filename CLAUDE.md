@@ -9,7 +9,8 @@ An MVP Service-Oriented Architecture (SOA) demo for customer/lead management. Th
 assembles the actual application from **Git submodules**:
 
 - `lead-service`, `customer-service`, `service-service`, `identity-service`, `email-service`,
-  `dashboard-service` — each an independent Node/Express repo with its own git history and Dockerfile
+  `dashboard-service`, `assistant-service` — each an independent Node/Express repo with its own
+  git history and Dockerfile
 - `kong` — Kong's declarative config repo (`api_gateway`)
 - `frontend` — React/Vite SPA (`customer_mgmt_frontend`)
 - `migrations` — the schema migration runner and bootstrap seed for the shared database
@@ -35,8 +36,9 @@ docker compose up migrate     # re-run migrations alone (idempotent)
 
 - Frontend: http://localhost:3000
 - Kong API Gateway (what the frontend talks to): http://localhost:8080/api/...
-- Postgres and Redis are internal-only except for local debugging (`5432`, `6379` published to host).
-- Each backend service also exposes its own port directly (4001–4006) for debugging, but the
+- Redis publishes `6379` to the host. **Postgres publishes nothing** — reach it with
+  `docker compose exec postgres psql -U app_user -d customer_management`.
+- Each backend service also exposes its own port directly (4001–4007) for debugging, but the
   frontend and inter-service calls always go through the gateway or internal Docker DNS
   (`http://<service-name>:<port>`), never `localhost`, inside containers.
 - Individual services can be run outside Docker with `npm start` (or `npm run dev` for
@@ -59,6 +61,12 @@ Kong routes by path prefix (`kong/kong.yml`), stripping the prefix before forwar
 | `/api/auth`       | identity-service     | 4004 |
 | `/api/dashboard`  | dashboard-service    | 4005 |
 | `/api/emails`     | email-service        | 4006 |
+| `/api/assistant`  | assistant-service    | 4007 |
+| `/api/mcp`        | assistant-service    | 4007 |
+
+identity-service serves more than `/api/auth`; each of these is a separate Kong entry pointing
+at its own upstream path: `/api/users`, `/api/roles`, `/api/permissions`,
+`/api/organizations`, `/api/access-grants`.
 
 Service-to-service calls (e.g. lead-service calling customer-service/service-service during lead
 creation/conversion) go directly over the Docker network via `*_SERVICE_URL` env vars, bypassing
@@ -67,7 +75,8 @@ Kong.
 ### Backend service shape
 
 Every backend service (`lead-service`, `customer-service`, `service-service`, `identity-service`,
-`email-service`, `dashboard-service`) follows the same layout and conventions:
+`email-service`, `dashboard-service`, `assistant-service`) follows the same layout and
+conventions:
 
 ```
 src/
@@ -85,13 +94,17 @@ src/
 - All services share **one Postgres database** (`customer_management`) — there's no per-service
   DB isolation in this MVP. `service-service`'s `services` table is referenced by foreign-key-less
   join tables (`lead_services`, `customer_services`) owned by other services.
-- Health check: every service exposes `GET /health` returning `{status: "ok", service: "<name>"}`;
-  `docker-compose.yml` healthchecks poll this.
+- Health check: every service exposes `GET /health` returning at least
+  `{status: "ok", service: "<name>"}` — some add a field of their own. `docker-compose.yml`
+  healthchecks poll this.
+- `middleware/accessGrants.js` is copied into every service and merges live just-in-time grants
+  into `req.auth.permissions`; `authenticate` is `async` because of it. dashboard-service carries
+  a `pg` pool solely for this.
 
 ### Migrations
 
 Schema is owned entirely by the `migrations` submodule, never by the services. The `migrate` compose
-service runs it to completion and the five DB-backed services are gated behind
+service runs it to completion and the DB-backed services are gated behind
 `migrate: { condition: service_completed_successfully }`, so the schema always exists before anything
 serves traffic.
 
@@ -130,6 +143,56 @@ serves traffic.
 - Multi-tenancy: rows are scoped by `organization_id`, derived from `req.auth.organizationId`, not
   from client-supplied input.
 
+#### Just-in-time access and guests
+
+Two things are deliberately **not** trusted from the token, because a JWT cannot be revoked:
+
+- `access_grants` rows are read **live on every request** by `middleware/accessGrants.js` and
+  merged into `req.auth.permissions`. Revoking a grant takes effect immediately on an unchanged
+  token. Grants are additive only, so a failed lookup leaves the caller with their token's own
+  permissions — erring toward denying access.
+- A grant to a `subject_email` with no account issues a one-time invite link. Redeeming it
+  (`POST /access-grants/redeem`, the one unauthenticated route there) materialises a `users` row
+  with `is_guest = true` and attaches the grant to it, so the normal lookup governs guests too.
+  Their JWT carries **zero baseline permissions**. Only a hash of the invite token is stored.
+
+#### Where a permission is checked
+
+Authorization lives in the service that owns the data, and only there. Callers — the frontend,
+another service, the assistant — forward the user's own bearer token rather than re-deciding.
+
+Two conventions worth knowing before editing routes:
+
+- **Assigning permissions is gated on `system.settings`**, not on the `*.update` permission for
+  the thing being edited. Role CRUD, access grants and changing a user's role all follow this;
+  otherwise anyone who could rename a colleague could promote them. (`createUser` is the known
+  exception — it still accepts any `roleCode` with `users.create`.)
+- `service-service` has a `requireAnyPermission` middleware used by **`GET /services/:id` only**.
+  lead-service and customer-service resolve service names by calling it with the end user's token,
+  so requiring `services.read` there would force anyone who can read leads to also be handed the
+  Services screen. The catalog list `GET /services` stays on `services.read` alone.
+
+### AI assistant and MCP
+
+`assistant-service` hosts both the in-product assistant (`POST /assistant/chat`) and an MCP server
+(`POST /mcp`, Streamable HTTP) over a **single tool catalog** in
+`src/services/toolCatalog.js`. It holds no business logic and touches no business tables — it reads
+the database only to resolve access grants when authenticating.
+
+- Every tool is an HTTP call onto the owning service carrying the caller's own bearer token, so
+  adding a tool never means duplicating a permission check.
+- Each tool declares a `permission`. `toolsFor(permissions)` filters the catalog **before the model
+  is invoked**, so the assistant has no vocabulary for features the user lacks — that, not the
+  prompt, is what keeps it from offering or discussing them.
+- Tools marked `write: true` are never executed on the model's say-so. They come back as a
+  `pendingAction` for the user to confirm, and the confirming call re-checks the permission rather
+  than trusting the returned payload.
+- The model is reached through OpenRouter. `OPENROUTER_MAX_TOKENS` is capped (default 1024) because
+  the provider default is far larger and is billed against the account's headroom. With no
+  `OPENROUTER_API_KEY` the assistant returns 503 and nothing else is affected.
+- No server-side session: the client posts the whole conversation each turn. Tool results never
+  leave the server, so across turns the model works from its own prose, not the raw data.
+
 ### Lead conversion
 
 `POST /api/leads/:id/convert` (lead-service) is the one cross-service write transaction: it creates
@@ -146,3 +209,13 @@ a customer (via customer-service), copies the lead's service mappings, and marks
   wrappers around it.
 - `src/archieve/` exists in the tree (that's the actual directory name, not a typo to fix
   incidentally) — check whether code there is still referenced before assuming it's dead.
+- Routes are permission-gated with `components/auth/RequirePermission.jsx` inside `ProtectedRoute`,
+  so a screen someone lacks denies honestly instead of mounting and showing an empty page. The
+  sidebar hides the link separately; both are cosmetic — the API is the authority.
+- The assistant's conversation lives in `context/AssistantContext.jsx`, above `AppLayout`, so the
+  docked panel and the `/assistant` page share one thread. `AssistantThread.jsx` is the shared UI;
+  the panel and page are chrome only.
+- Assistant replies are rendered as Markdown (`react-markdown` + `remark-gfm`). `rehype-raw` is
+  deliberately absent: model output is untrusted, so raw HTML stays escaped.
+- Page chrome (breadcrumb, header, cards) is defined **per page** in `styles/`, not shared — when
+  adding a screen, expect to copy a block rather than find a generic rule.

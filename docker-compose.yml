@@ -1,16 +1,33 @@
+# Every value here comes from .env. The `:-` defaults are what the MVP has
+# always used, so the stack still boots on a fresh clone with no .env at all;
+# copy .env.example to .env to take control of any of them.
+#
+# Two things do NOT come from interpolation, deliberately:
+#
+#   - The OpenRouter settings, which assistant-service reads through env_file.
+#     `${VAR}` interpolation prefers a shell export over .env, which is exactly
+#     what we were asked to stop.
+#   - The internal service ports are also written into kong/kong.yml, which is a
+#     separate submodule and is not templated. Changing a *_SERVICE_PORT here
+#     means editing kong.yml to match, or the gateway will route to a dead port.
+
 services:
   postgres:
     image: postgres:16-alpine
     container_name: customer-management-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_DB: customer_management
-      POSTGRES_USER: app_user
-      POSTGRES_PASSWORD: app_password
+      POSTGRES_DB: "${DB_NAME:-customer_management}"
+      POSTGRES_USER: "${DB_USER:-app_user}"
+      POSTGRES_PASSWORD: "${DB_PASSWORD:-app_password}"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U app_user -d customer_management"]
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${DB_USER:-app_user} -d ${DB_NAME:-customer_management}",
+        ]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -29,7 +46,7 @@ services:
       timeout: 3s
       retries: 10
     ports:
-      - "6379:6379"
+      - "${REDIS_HOST_PORT:-6379}:6379"
 
   migrate:
     build:
@@ -38,11 +55,11 @@ services:
     # Must not inherit a restart policy: this container is expected to exit 0.
     restart: "no"
     environment:
-      DB_HOST: postgres
-      DB_PORT: 5432
-      DB_NAME: customer_management
-      DB_USER: app_user
-      DB_PASSWORD: app_password
+      DB_HOST: "${DB_HOST:-postgres}"
+      DB_PORT: "${DB_PORT:-5432}"
+      DB_NAME: "${DB_NAME:-customer_management}"
+      DB_USER: "${DB_USER:-app_user}"
+      DB_PASSWORD: "${DB_PASSWORD:-app_password}"
       BOOTSTRAP_ORG_NAME: "${BOOTSTRAP_ORG_NAME:-Acme Corporation}"
       BOOTSTRAP_ORG_SLUG: "${BOOTSTRAP_ORG_SLUG:-acme-corporation}"
       BOOTSTRAP_ADMIN_NAME: "${BOOTSTRAP_ADMIN_NAME:-Admin}"
@@ -58,16 +75,16 @@ services:
       context: ./service-service
     container_name: customer-management-service-service
     ports:
-      - "4003:4003"
+      - "${SERVICE_SERVICE_HOST_PORT:-4003}:${SERVICE_SERVICE_PORT:-4003}"
     environment:
-      PORT: 4003
-      DB_HOST: postgres
-      DB_PORT: 5432
-      DB_NAME: customer_management
-      DB_USER: app_user
-      DB_PASSWORD: app_password
-      JWT_SECRET: omnicore-development-secret-change-this
-      JWT_ISSUER: omnicore-identity-service
+      PORT: "${SERVICE_SERVICE_PORT:-4003}"
+      DB_HOST: "${DB_HOST:-postgres}"
+      DB_PORT: "${DB_PORT:-5432}"
+      DB_NAME: "${DB_NAME:-customer_management}"
+      DB_USER: "${DB_USER:-app_user}"
+      DB_PASSWORD: "${DB_PASSWORD:-app_password}"
+      JWT_SECRET: "${JWT_SECRET:-omnicore-development-secret-change-this}"
+      JWT_ISSUER: "${JWT_ISSUER:-omnicore-identity-service}"
     depends_on:
       postgres:
         condition: service_healthy
@@ -77,7 +94,7 @@ services:
       test:
         [
           "CMD-SHELL",
-          "wget --no-verbose --tries=1 --spider http://localhost:4003/health || exit 1",
+          "wget --no-verbose --tries=1 --spider http://localhost:${SERVICE_SERVICE_PORT:-4003}/health || exit 1",
         ]
       interval: 10s
       timeout: 5s
@@ -90,18 +107,18 @@ services:
       context: ./customer-service
     container_name: customer-management-customer-service
     ports:
-      - "4002:4002"
+      - "${CUSTOMER_SERVICE_HOST_PORT:-4002}:${CUSTOMER_SERVICE_PORT:-4002}"
     environment:
-      PORT: 4002
-      DB_HOST: postgres
-      DB_PORT: 5432
-      DB_NAME: customer_management
-      DB_USER: app_user
-      DB_PASSWORD: app_password
-      JWT_SECRET: omnicore-development-secret-change-this
-      JWT_ISSUER: omnicore-identity-service
-      SERVICE_SERVICE_URL: http://service-service:4003
-      EMAIL_SERVICE_URL: http://email-service:4006
+      PORT: "${CUSTOMER_SERVICE_PORT:-4002}"
+      DB_HOST: "${DB_HOST:-postgres}"
+      DB_PORT: "${DB_PORT:-5432}"
+      DB_NAME: "${DB_NAME:-customer_management}"
+      DB_USER: "${DB_USER:-app_user}"
+      DB_PASSWORD: "${DB_PASSWORD:-app_password}"
+      JWT_SECRET: "${JWT_SECRET:-omnicore-development-secret-change-this}"
+      JWT_ISSUER: "${JWT_ISSUER:-omnicore-identity-service}"
+      SERVICE_SERVICE_URL: "http://service-service:${SERVICE_SERVICE_PORT:-4003}"
+      EMAIL_SERVICE_URL: "http://email-service:${EMAIL_SERVICE_PORT:-4006}"
     depends_on:
       postgres:
         condition: service_healthy
@@ -113,7 +130,7 @@ services:
       test:
         [
           "CMD-SHELL",
-          "wget --no-verbose --tries=1 --spider http://localhost:4002/health || exit 1",
+          "wget --no-verbose --tries=1 --spider http://localhost:${CUSTOMER_SERVICE_PORT:-4002}/health || exit 1",
         ]
       interval: 10s
       timeout: 5s
@@ -126,19 +143,19 @@ services:
       context: ./lead-service
     container_name: customer-management-lead-service
     ports:
-      - "4001:4001"
+      - "${LEAD_SERVICE_HOST_PORT:-4001}:${LEAD_SERVICE_PORT:-4001}"
     environment:
-      PORT: 4001
-      DB_HOST: postgres
-      DB_PORT: 5432
-      DB_NAME: customer_management
-      DB_USER: app_user
-      DB_PASSWORD: app_password
-      JWT_SECRET: omnicore-development-secret-change-this
-      JWT_ISSUER: omnicore-identity-service
-      CUSTOMER_SERVICE_URL: http://customer-service:4002
-      SERVICE_SERVICE_URL: http://service-service:4003
-      EMAIL_SERVICE_URL: http://email-service:4006
+      PORT: "${LEAD_SERVICE_PORT:-4001}"
+      DB_HOST: "${DB_HOST:-postgres}"
+      DB_PORT: "${DB_PORT:-5432}"
+      DB_NAME: "${DB_NAME:-customer_management}"
+      DB_USER: "${DB_USER:-app_user}"
+      DB_PASSWORD: "${DB_PASSWORD:-app_password}"
+      JWT_SECRET: "${JWT_SECRET:-omnicore-development-secret-change-this}"
+      JWT_ISSUER: "${JWT_ISSUER:-omnicore-identity-service}"
+      CUSTOMER_SERVICE_URL: "http://customer-service:${CUSTOMER_SERVICE_PORT:-4002}"
+      SERVICE_SERVICE_URL: "http://service-service:${SERVICE_SERVICE_PORT:-4003}"
+      EMAIL_SERVICE_URL: "http://email-service:${EMAIL_SERVICE_PORT:-4006}"
     depends_on:
       postgres:
         condition: service_healthy
@@ -152,7 +169,7 @@ services:
       test:
         [
           "CMD-SHELL",
-          "wget --no-verbose --tries=1 --spider http://localhost:4001/health || exit 1",
+          "wget --no-verbose --tries=1 --spider http://localhost:${LEAD_SERVICE_PORT:-4001}/health || exit 1",
         ]
       interval: 10s
       timeout: 5s
@@ -165,17 +182,17 @@ services:
       context: ./identity-service
     container_name: customer-management-identity-service
     ports:
-      - "4004:4004"
+      - "${IDENTITY_SERVICE_HOST_PORT:-4004}:${IDENTITY_SERVICE_PORT:-4004}"
     environment:
-      PORT: 4004
-      DB_HOST: postgres
-      DB_PORT: 5432
-      DB_NAME: customer_management
-      DB_USER: app_user
-      DB_PASSWORD: app_password
-      JWT_SECRET: omnicore-development-secret-change-this
-      JWT_ISSUER: omnicore-identity-service
-      JWT_EXPIRES_IN: 8h
+      PORT: "${IDENTITY_SERVICE_PORT:-4004}"
+      DB_HOST: "${DB_HOST:-postgres}"
+      DB_PORT: "${DB_PORT:-5432}"
+      DB_NAME: "${DB_NAME:-customer_management}"
+      DB_USER: "${DB_USER:-app_user}"
+      DB_PASSWORD: "${DB_PASSWORD:-app_password}"
+      JWT_SECRET: "${JWT_SECRET:-omnicore-development-secret-change-this}"
+      JWT_ISSUER: "${JWT_ISSUER:-omnicore-identity-service}"
+      JWT_EXPIRES_IN: "${JWT_EXPIRES_IN:-8h}"
     depends_on:
       postgres:
         condition: service_healthy
@@ -185,7 +202,7 @@ services:
       test:
         [
           "CMD-SHELL",
-          "wget --no-verbose --tries=1 --spider http://localhost:4004/health || exit 1",
+          "wget --no-verbose --tries=1 --spider http://localhost:${IDENTITY_SERVICE_PORT:-4004}/health || exit 1",
         ]
       interval: 10s
       timeout: 5s
@@ -198,25 +215,25 @@ services:
       context: ./dashboard-service
     container_name: customer-management-dashboard-service
     ports:
-      - "4005:4005"
+      - "${DASHBOARD_SERVICE_HOST_PORT:-4005}:${DASHBOARD_SERVICE_PORT:-4005}"
     environment:
-      PORT: 4005
+      PORT: "${DASHBOARD_SERVICE_PORT:-4005}"
 
       # Needed only to read active access grants when authenticating a request.
-      DB_HOST: postgres
-      DB_PORT: 5432
-      DB_NAME: customer_management
-      DB_USER: app_user
-      DB_PASSWORD: app_password
+      DB_HOST: "${DB_HOST:-postgres}"
+      DB_PORT: "${DB_PORT:-5432}"
+      DB_NAME: "${DB_NAME:-customer_management}"
+      DB_USER: "${DB_USER:-app_user}"
+      DB_PASSWORD: "${DB_PASSWORD:-app_password}"
 
-      JWT_SECRET: omnicore-development-secret-change-this
-      JWT_ISSUER: omnicore-identity-service
+      JWT_SECRET: "${JWT_SECRET:-omnicore-development-secret-change-this}"
+      JWT_ISSUER: "${JWT_ISSUER:-omnicore-identity-service}"
 
-      LEAD_SERVICE_URL: http://lead-service:4001
-      CUSTOMER_SERVICE_URL: http://customer-service:4002
-      SERVICE_SERVICE_URL: http://service-service:4003
+      LEAD_SERVICE_URL: "http://lead-service:${LEAD_SERVICE_PORT:-4001}"
+      CUSTOMER_SERVICE_URL: "http://customer-service:${CUSTOMER_SERVICE_PORT:-4002}"
+      SERVICE_SERVICE_URL: "http://service-service:${SERVICE_SERVICE_PORT:-4003}"
 
-      REDIS_URL: redis://redis:6379
+      REDIS_URL: "${REDIS_URL:-redis://redis:6379}"
 
     depends_on:
       postgres:
@@ -234,7 +251,7 @@ services:
       test:
         [
           "CMD-SHELL",
-          "wget --no-verbose --tries=1 --spider http://localhost:4005/health || exit 1",
+          "wget --no-verbose --tries=1 --spider http://localhost:${DASHBOARD_SERVICE_PORT:-4005}/health || exit 1",
         ]
       interval: 10s
       timeout: 5s
@@ -250,27 +267,27 @@ services:
     restart: unless-stopped
 
     ports:
-      - "4006:4006"
+      - "${EMAIL_SERVICE_HOST_PORT:-4006}:${EMAIL_SERVICE_PORT:-4006}"
 
     environment:
-      PORT: 4006
+      PORT: "${EMAIL_SERVICE_PORT:-4006}"
 
       # PostgreSQL
-      DB_HOST: postgres
-      DB_PORT: 5432
-      DB_NAME: customer_management
-      DB_USER: app_user
-      DB_PASSWORD: app_password
+      DB_HOST: "${DB_HOST:-postgres}"
+      DB_PORT: "${DB_PORT:-5432}"
+      DB_NAME: "${DB_NAME:-customer_management}"
+      DB_USER: "${DB_USER:-app_user}"
+      DB_PASSWORD: "${DB_PASSWORD:-app_password}"
 
       # JWT
-      JWT_SECRET: omnicore-development-secret-change-this
-      JWT_ISSUER: omnicore-identity-service
+      JWT_SECRET: "${JWT_SECRET:-omnicore-development-secret-change-this}"
+      JWT_ISSUER: "${JWT_ISSUER:-omnicore-identity-service}"
 
       # Redis
-      REDIS_URL: redis://redis:6379
+      REDIS_URL: "${REDIS_URL:-redis://redis:6379}"
 
-      CUSTOMER_SERVICE_URL: http://customer-service:4002
-      LEAD_SERVICE_URL: http://lead-service:4001
+      CUSTOMER_SERVICE_URL: "http://customer-service:${CUSTOMER_SERVICE_PORT:-4002}"
+      LEAD_SERVICE_URL: "http://lead-service:${LEAD_SERVICE_PORT:-4001}"
 
     depends_on:
       postgres:
@@ -284,7 +301,7 @@ services:
       test:
         [
           "CMD-SHELL",
-          "wget --no-verbose --tries=1 --spider http://localhost:4006/health || exit 1",
+          "wget --no-verbose --tries=1 --spider http://localhost:${EMAIL_SERVICE_PORT:-4006}/health || exit 1",
         ]
       interval: 10s
       timeout: 5s
@@ -298,33 +315,53 @@ services:
     restart: unless-stopped
 
     ports:
-      - "4007:4007"
+      - "${ASSISTANT_SERVICE_HOST_PORT:-4007}:${ASSISTANT_SERVICE_PORT:-4007}"
+
+    # The OpenRouter settings come from .env and ONLY from .env.
+    #
+    # They are not listed under `environment:` below, because `${VAR}`
+    # interpolation prefers a value exported in the shell, which silently beat
+    # the file and left the real source of the key ambiguous. env_file is read
+    # straight off disk and never consults the shell.
+    #
+    # env_file loads the whole file, so everything else .env defines also lands
+    # in this container. The bootstrap values are blanked below for that reason.
+    env_file:
+      - path: .env
+        required: false
 
     environment:
-      PORT: 4007
+      PORT: "${ASSISTANT_SERVICE_PORT:-4007}"
 
       # Only used to read active just-in-time grants when authenticating.
-      DB_HOST: postgres
-      DB_PORT: 5432
-      DB_NAME: customer_management
-      DB_USER: app_user
-      DB_PASSWORD: app_password
+      DB_HOST: "${DB_HOST:-postgres}"
+      DB_PORT: "${DB_PORT:-5432}"
+      DB_NAME: "${DB_NAME:-customer_management}"
+      DB_USER: "${DB_USER:-app_user}"
+      DB_PASSWORD: "${DB_PASSWORD:-app_password}"
 
-      JWT_SECRET: omnicore-development-secret-change-this
-      JWT_ISSUER: omnicore-identity-service
+      JWT_SECRET: "${JWT_SECRET:-omnicore-development-secret-change-this}"
+      JWT_ISSUER: "${JWT_ISSUER:-omnicore-identity-service}"
 
       # Every tool is a call onto one of these, made with the signed-in user's
       # own token, so each service applies its usual permission checks.
-      LEAD_SERVICE_URL: http://lead-service:4001
-      CUSTOMER_SERVICE_URL: http://customer-service:4002
-      SERVICE_SERVICE_URL: http://service-service:4003
-      DASHBOARD_SERVICE_URL: http://dashboard-service:4005
-      EMAIL_SERVICE_URL: http://email-service:4006
+      LEAD_SERVICE_URL: "http://lead-service:${LEAD_SERVICE_PORT:-4001}"
+      CUSTOMER_SERVICE_URL: "http://customer-service:${CUSTOMER_SERVICE_PORT:-4002}"
+      SERVICE_SERVICE_URL: "http://service-service:${SERVICE_SERVICE_PORT:-4003}"
+      DASHBOARD_SERVICE_URL: "http://dashboard-service:${DASHBOARD_SERVICE_PORT:-4005}"
+      EMAIL_SERVICE_URL: "http://email-service:${EMAIL_SERVICE_PORT:-4006}"
 
-      OPENROUTER_API_KEY: "${OPENROUTER_API_KEY:-}"
-      OPENROUTER_MODEL: "${OPENROUTER_MODEL:-}"
-      OPENROUTER_MAX_TOKENS: "${OPENROUTER_MAX_TOKENS:-1024}"
       PUBLIC_APP_URL: "${PUBLIC_APP_URL:-http://localhost:3000}"
+
+      # `environment:` overrides env_file, so these blank out the seed
+      # credentials this service has no use for. Without them, the one service
+      # that talks to an external model would also be holding the bootstrap
+      # admin password in its environment.
+      BOOTSTRAP_ADMIN_PASSWORD: ""
+      BOOTSTRAP_ADMIN_EMAIL: ""
+      BOOTSTRAP_ADMIN_NAME: ""
+      BOOTSTRAP_ORG_NAME: ""
+      BOOTSTRAP_ORG_SLUG: ""
 
     depends_on:
       postgres:
@@ -340,7 +377,7 @@ services:
       test:
         [
           "CMD-SHELL",
-          "wget --no-verbose --tries=1 --spider http://localhost:4007/health || exit 1",
+          "wget --no-verbose --tries=1 --spider http://localhost:${ASSISTANT_SERVICE_PORT:-4007}/health || exit 1",
         ]
       interval: 10s
       timeout: 5s
@@ -362,7 +399,9 @@ services:
     volumes:
       - ./kong/kong.yml:/kong/declarative/kong.yml:ro
     ports:
-      - "8080:8000"
+      # 8000 is Kong's own proxy port inside the container and is not ours to
+      # change; only the host side is configurable.
+      - "${KONG_HOST_PORT:-8080}:8000"
     depends_on:
       lead-service:
         condition: service_started
@@ -380,8 +419,16 @@ services:
       context: ./frontend
     container_name: customer-management-frontend
     restart: unless-stopped
+    environment:
+      # Where the browser reaches Kong. Vite substitutes VITE_* at transform
+      # time, so the container must be rebuilt (or restarted) for a change here
+      # to reach the page — it is not read at request time.
+      VITE_API_BASE_URL: "${VITE_API_BASE_URL:-http://localhost:${KONG_HOST_PORT:-8080}/api}"
+
     ports:
-      - "3000:3000"
+      # The container side is fixed: the frontend's own start script pins Vite
+      # to 3000.
+      - "${FRONTEND_HOST_PORT:-3000}:3000"
     depends_on:
       kong:
         condition: service_started
