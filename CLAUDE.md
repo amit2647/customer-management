@@ -23,6 +23,32 @@ submodule and want the parent repo to track the new commit, that's a separate `g
 There are no test suites, linters, or formatters configured anywhere in this repo (parent or any
 submodule) — don't assume `npm test`/`eslint` exist.
 
+## Configuration
+
+Every value in `docker-compose.yml` comes from `.env`, with the original literals kept as `:-`
+defaults so the stack boots on a fresh clone with nothing configured. `.env.example` documents all
+of them. `.env` is gitignored; so is `handoff.md`.
+
+Three things are deliberately not templated, each commented where it sits:
+
+- Kong's container-side `8000` and Vite's `3000` are those programs' own ports.
+- `kong/kong.yml` pins the internal service ports and is a separate submodule that is not
+  templated from here. Changing a `*_SERVICE_PORT` means editing `kong.yml` to match; changing a
+  `*_HOST_PORT` is always safe.
+- The frontend reaches Kong through `VITE_API_BASE_URL`, which compose derives from
+  `KONG_HOST_PORT`.
+
+**The OpenRouter settings are the one exception to interpolation.** assistant-service reads them
+through `env_file`, because `${VAR}` interpolation prefers a shell export over `.env` and made the
+key's real source ambiguous. Two consequences: never add `OPENROUTER_*` under that service's
+`environment:` (entries there override `env_file` and reinstate shell precedence), and because
+`env_file` loads the whole file, the `BOOTSTRAP_*` values are explicitly blanked for that one
+container so the service that talks to an external model is not also holding the seed admin
+password.
+
+Note the asymmetry: the interpolated variables *are* still shell-overridable, which is normal and
+useful for CI. Only `OPENROUTER_*` is shell-proof.
+
 ## Running the app
 
 ```bash
@@ -130,9 +156,13 @@ serves traffic.
 
 ### Auth model
 
-- `identity-service` issues JWTs (`jsonwebtoken`) on login, signed with `JWT_SECRET`, issuer
-  `omnicore-identity-service` (both shared via env vars across every service — a real deployment
-  would not hardcode `JWT_SECRET` in `docker-compose.yml` the way this MVP does).
+- `identity-service` issues JWTs (`jsonwebtoken`) on login, signed with `JWT_SECRET` and carrying
+  `JWT_ISSUER` (default `omnicore-identity-service`). Both are shared across every service through
+  `.env`. All seven services read the issuer from the env var on verify, and identity-service reads
+  it when signing — several used to hardcode the literal, so the variable did nothing and changing
+  it broke auth in a partial, confusing way.
+- No service falls back to a default `JWT_SECRET`. Verification fails closed if it is unset; do not
+  reintroduce a fallback, since the development secret is committed to this repo.
 - JWT payload carries `sub` (user id), `organizationId`, `role`, and a `permissions` array.
 - Every other service's `middleware/authenticate.js` independently verifies the token (no calls
   back to identity-service per-request) and populates `req.auth = { userId, organizationId, role,
@@ -203,10 +233,12 @@ a customer (via customer-service), copies the lead's service mappings, and marks
 
 - React + Vite + React Router, plain CSS (`src/styles/`, organized by foundation/layout/components/
   features/pages — no CSS framework/CSS-in-JS).
-- `src/api/client.js` is the single fetch wrapper: base URL hardcoded to
-  `http://localhost:8080/api` (Kong), attaches `Authorization: Bearer <token>` from
-  `localStorage` (`omnicore_access_token`). All other `src/api/*.js` files are thin per-resource
-  wrappers around it.
+- `src/api/client.js` is the single fetch wrapper: base URL from
+  `import.meta.env.VITE_API_BASE_URL` (Kong), falling back to `http://localhost:8080/api`. It
+  attaches `Authorization: Bearer <token>` from `localStorage` (`omnicore_access_token`). All
+  other `src/api/*.js` files are thin per-resource wrappers around it. `VITE_` is the only prefix
+  Vite exposes to browser code, and the value is read when the dev server starts — changing it
+  needs the frontend container restarted, it is not read per request.
 - `src/archieve/` exists in the tree (that's the actual directory name, not a typo to fix
   incidentally) — check whether code there is still referenced before assuming it's dead.
 - Routes are permission-gated with `components/auth/RequirePermission.jsx` inside `ProtectedRoute`,

@@ -295,6 +295,11 @@ The frontend is implemented using:
 
 The browser communicates with the backend through the Kong API Gateway rather than directly accessing individual services.
 
+The gateway address comes from `VITE_API_BASE_URL`, which docker-compose derives
+from `KONG_HOST_PORT`. `VITE_` is the only prefix Vite exposes to browser code,
+and the value is read when the dev server starts rather than per request, so
+changing it needs the frontend container restarted.
+
 Frontend:
 
 ```text
@@ -977,7 +982,10 @@ The authorization model includes roles such as:
 - Customer Success Manager
 
 Permissions are baked into the JWT at login. Every service verifies the token
-independently, with no call back to the Identity Service per request.
+independently, with no call back to the Identity Service per request. The
+signing secret and issuer come from `JWT_SECRET` and `JWT_ISSUER`, shared across
+every service through `.env`; no service falls back to a default secret, so
+verification fails closed if one is missing.
 
 Two things are deliberately *not* taken from the token:
 
@@ -1067,27 +1075,88 @@ docker compose logs -f email-service
 
 # Configuration
 
-Copy `.env.example` to `.env` at the project root. Every value has a working
-default, so the stack starts without editing anything — except the assistant,
-which needs a key.
+`docker-compose.yml` hardcodes nothing. Every value comes from `.env`, with the
+previous literals kept as defaults, so the stack boots on a fresh clone with no
+`.env` at all. Copy `.env.example` to `.env` to take control of any of them.
 
-| Variable                   | Purpose                                                        |
-| -------------------------- | -------------------------------------------------------------- |
-| `BOOTSTRAP_ORG_NAME`       | Organization created on an empty database                        |
-| `BOOTSTRAP_ORG_SLUG`       | Slug used to resolve the organization on every boot              |
-| `BOOTSTRAP_ADMIN_EMAIL`    | First admin user; an existing user is never overwritten          |
-| `BOOTSTRAP_ADMIN_PASSWORD` | Password for that user, on first creation only                   |
-| `SEED_DEMO_DATA`           | Seeds two leads and one converted customer. Set `false` for real use |
-| `OPENROUTER_API_KEY`       | Enables the AI assistant. Empty means the assistant returns 503  |
-| `OPENROUTER_MODEL`         | Any OpenRouter model with tool-calling                           |
-| `OPENROUTER_MAX_TOKENS`    | Reply cap, default `1024`                                        |
+`.env` is gitignored — do not commit it.
 
-> Values exported in your shell take precedence over `.env`. A key set in the
-> environment will be used even if the `.env` line looks empty.
+### Database, cache and authentication
+
+| Variable                      | Default                  | Purpose                                     |
+| ----------------------------- | ------------------------ | ------------------------------------------- |
+| `DB_HOST`                     | `postgres`               | Compose service name, not `localhost`        |
+| `DB_PORT`                     | `5432`                   |                                             |
+| `DB_NAME`                     | `customer_management`    | Shared by every service                      |
+| `DB_USER` / `DB_PASSWORD`     | `app_user` / `app_password` |                                          |
+| `REDIS_URL`                   | `redis://redis:6379`     | In-network address                           |
+| `REDIS_HOST_PORT`             | `6379`                   | For connecting from your machine             |
+| `JWT_SECRET`                  | development value        | Shared by every service; no service falls back if unset |
+| `JWT_ISSUER`                  | `omnicore-identity-service` | Used when signing *and* verifying         |
+| `JWT_EXPIRES_IN`              | `8h`                     | Also how long a role change takes to reach someone signed in |
+
+### Ports
+
+`*_SERVICE_PORT` is the port inside the container; `*_SERVICE_HOST_PORT` is what
+is published to your machine, for debugging only.
+
+| Variable                                          | Default |
+| ------------------------------------------------- | ------- |
+| `LEAD_SERVICE_PORT` / `_HOST_PORT`                 | `4001`  |
+| `CUSTOMER_SERVICE_PORT` / `_HOST_PORT`             | `4002`  |
+| `SERVICE_SERVICE_PORT` / `_HOST_PORT`              | `4003`  |
+| `IDENTITY_SERVICE_PORT` / `_HOST_PORT`             | `4004`  |
+| `DASHBOARD_SERVICE_PORT` / `_HOST_PORT`            | `4005`  |
+| `EMAIL_SERVICE_PORT` / `_HOST_PORT`                | `4006`  |
+| `ASSISTANT_SERVICE_PORT` / `_HOST_PORT`            | `4007`  |
+| `KONG_HOST_PORT`                                   | `8080`  |
+| `FRONTEND_HOST_PORT`                               | `3000`  |
+| `VITE_API_BASE_URL`                                | follows `KONG_HOST_PORT` |
+| `PUBLIC_APP_URL`                                   | `http://localhost:3000` |
+
+> **The internal service ports are also written into `kong/kong.yml`**, a
+> separate submodule that is not templated from here. Changing a
+> `*_SERVICE_PORT` means editing `kong.yml` to match, or the gateway routes to a
+> dead port. Changing a `*_HOST_PORT` is always safe.
+>
+> Kong's container-side `8000` and Vite's `3000` are those programs' own ports
+> and are not configurable from here.
+
+### Bootstrap and seeding
+
+| Variable                   | Purpose                                                              |
+| -------------------------- | -------------------------------------------------------------------- |
+| `BOOTSTRAP_ORG_NAME`       | Organization created on an empty database                             |
+| `BOOTSTRAP_ORG_SLUG`       | Slug used to resolve the organization on every boot                   |
+| `BOOTSTRAP_ADMIN_NAME`     | Display name for the first admin                                      |
+| `BOOTSTRAP_ADMIN_EMAIL`    | First admin user; an existing user is never overwritten               |
+| `BOOTSTRAP_ADMIN_PASSWORD` | Password for that user, on first creation only                        |
+| `SEED_DEMO_DATA`           | Seeds two leads and one converted customer. Set `false` for real use  |
 
 Demo seeding only runs on a database with no leads and no customers, so it never
 touches a database already in use. The bootstrap seed runs on every start,
 outside the migration ledger, so a half-bootstrapped database repairs itself.
+
+### AI assistant
+
+| Variable                | Purpose                                                         |
+| ----------------------- | --------------------------------------------------------------- |
+| `OPENROUTER_API_KEY`    | Enables the assistant. Empty means it returns 503                 |
+| `OPENROUTER_MODEL`      | Any OpenRouter model with tool-calling                            |
+| `OPENROUTER_MAX_TOKENS` | Reply cap, default `1024`                                         |
+
+These three are handled differently from everything above. assistant-service
+reads them through docker-compose's `env_file` rather than `${VAR}`
+interpolation, because interpolation prefers a value exported in your shell and
+would silently override the file — so for these, `.env` is the only source.
+
+Two consequences: do not add `OPENROUTER_*` under that service's `environment:`,
+since entries there beat `env_file`; and because `env_file` loads the whole file,
+the `BOOTSTRAP_*` values are blanked for that one container so the service that
+talks to an external model is not also holding the seed admin password.
+
+Everything else *is* shell-overridable, which is normal and useful in CI — only
+the OpenRouter settings are pinned to the file.
 
 ---
 
@@ -1463,19 +1532,24 @@ http://localhost:3000
 
 The application uses PostgreSQL.
 
-Default Docker configuration:
+Default configuration, all overridable from `.env`:
 
 ```text
-Database: customer_management
-User:     app_user
-Password: app_password
-Host:     postgres
-Port:     5432
+Database: customer_management     (DB_NAME)
+User:     app_user                (DB_USER)
+Password: app_password            (DB_PASSWORD)
+Host:     postgres                (DB_HOST — the compose service name)
+Port:     5432                    (DB_PORT)
 ```
 
-> For development, credentials should preferably be supplied through environment variables rather than committed directly to source control.
+Postgres is **not published to the host**. Reach it from your machine with:
 
-PostgreSQL data is persisted using a Docker volume.
+```bash
+docker compose exec postgres psql -U app_user -d customer_management
+```
+
+PostgreSQL data is persisted using a Docker volume. Note that `docker compose
+down -v` destroys it.
 
 ---
 
@@ -1647,7 +1721,7 @@ Potential further capabilities include:
 - Message broker integration
 - Event-driven architecture
 - Dedicated database per service
-- Service-to-service authentication
+- Service-to-service authentication (calls currently forward the end user's token)
 - Automated testing
 - CI/CD pipeline
 - Kubernetes deployment
