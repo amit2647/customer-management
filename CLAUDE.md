@@ -296,14 +296,17 @@ a customer (via customer-service), copies the lead's service mappings, and marks
 - The assistant's status orb is `thinking-orbs` (MIT, zero dependencies, a transparent 2D canvas).
   Its state is derived **once**, as `state` in `AssistantContext` (`idle` / `listening` /
   `processing` / `responding` / `confirming`), so the orb and its caption cannot disagree.
-  `AssistantOrb.jsx` maps those onto the library's own animations. Three things about the library
-  that are easy to get wrong:
-  - `size` is `64 | 32 | 20` — separate tuned designs, not a scale factor. `resolvePreset` throws
-    for anything above 64, so the page's hero orb is scaled in CSS via `--orb-scale`, which trades
-    some sharpness for size. The same variable drives the margin that reserves its height, because
-    a transform does not affect layout.
-  - `theme="auto"` looks for `data-theme="dark|light"`. Ours reads `lemon|cobalt|mint|coral`, so
-    auto would fall through to `prefers-color-scheme`. The theme is pinned from `ThemeContext`.
+  `AssistantOrb.jsx` maps those onto the library's own animations. It does **not** use the
+  `<ThinkingOrb>` component: `MorphOrb` draws with the library's engine (`thinking-orbs/engine` —
+  `resolvePreset`, `MODE_FRAMES`, `paintFrame`) so it can do two things the component cannot:
+  - **Draw at real size.** The component sizes its canvas to the preset, so enlarging it meant
+    stretching a 64px raster. The frames are pure vector geometry, so they are painted through a
+    scaled context at the CSS size instead; `--orb-scale` is a real size, not a stretch.
+  - **Morph between states.** The component restarts on a state change. `blend()` moves each
+    dot of the old frame to a dot of the new one over `MORPH_MS`.
+  - Still true of the library: `size`/`base` is `64 | 32 | 20` — tuned designs, and
+    `resolvePreset` throws above 64. Dark ink vs light ink is pinned from `ThemeContext`, since
+    our theme names are not `dark|light`.
   - The canvas is transparent. Never give an orb selector a background, border or shadow — it
     shows as a plate behind the dots instead of letting the glass through.
 - The assistant's glass (`backdrop-filter`) is scoped to `.assistant-panel` and
