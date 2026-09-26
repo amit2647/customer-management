@@ -1824,7 +1824,10 @@ Every repository has tests, and GitHub Actions runs them on each push.
 | Migrations | SQL rule checks, plus a real double run on a disposable Postgres | `npm test` in `migrations` (the database part needs `MIGRATIONS_TEST_DB`) |
 | Gateway | `kong config parse` on `kong.yml` | CI |
 | Integration | the whole stack through Kong, as a throwaway `cmtest` project, with Mailpit catching email | `tests/run-integration.sh` |
-| Browser | Playwright against the real UI, saving screenshots | `tests/run-e2e.sh` |
+| Browser | Playwright against the real UI, desktop and phone width, saving screenshots | `tests/run-e2e.sh` |
+| Load | k6: 20 users on the main read paths, p95 < 800 ms | part of `tests/run-integration.sh` |
+| Lint, audit, secrets | ESLint, `npm audit`, gitleaks | `npm run lint`, CI |
+| Real model | one question to the real OpenRouter model (manual; spends credit) | `tests/smoke-openrouter.sh` |
 
 The integration run never touches your local data: it uses its own Docker
 project and volumes and removes them afterwards. The assistant is pointed at a

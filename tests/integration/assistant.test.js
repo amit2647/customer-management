@@ -209,3 +209,32 @@ describe("search and help", () => {
     assert.doesNotMatch(lastText(asRep), /New Role/);
   });
 });
+
+describe("long conversations", () => {
+  test("a fact from before the context window is recalled into the prompt", async () => {
+    const conversation = uuid();
+    const fact = unique("quokka-renewal");
+
+    await send(admin, conversation, `Remember: the renewal codeword is ${fact}.`);
+
+    // Wait until that message is embedded (found by meaning, not just words).
+    await waitFor(async () => {
+      const { body } = await api("GET", `/assistant/conversations/search?q=${fact}`, { token: admin });
+      return body.results?.some((result) => result.id === conversation && result.matchedBy.includes("meaning"));
+    }, { what: "the fact to be embedded" });
+
+    // Push it out of the 40-message window.
+    for (let i = 0; i < 22; i += 1) {
+      await send(admin, conversation, `Filler message number ${i} about the weather.`);
+    }
+
+    await send(admin, conversation, "What was the renewal codeword?");
+
+    const last = await (await fetch(`${process.env.FAKE_MODEL_URL || "http://localhost:18099"}/__last`)).json();
+    const system = last.messages.find((message) => message.role === "system").content;
+    const thread = last.messages.filter((message) => message.role !== "system").map((message) => message.content).join("\n");
+
+    assert.ok(!thread.includes(fact), "the fact must be outside the window for this test to mean anything");
+    assert.ok(system.includes(fact), "recall brought the fact back");
+  });
+});

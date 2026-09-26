@@ -40,7 +40,14 @@ jobs:
       - run: npm ci --no-audit --no-fund
         working-directory: ${{ matrix.repo }}
 
-      - run: npm test
+      - run: npm run lint
+        working-directory: ${{ matrix.repo }}
+
+      - run: npm audit --omit=dev --audit-level=high
+        working-directory: ${{ matrix.repo }}
+
+      # Runs the tests and prints a coverage table into the job log.
+      - run: npm run coverage
         working-directory: ${{ matrix.repo }}
 
   migrations:
@@ -77,8 +84,37 @@ jobs:
       - run: npm ci --no-audit --no-fund
         working-directory: migrations
 
-      - run: npm test
+      - run: npm run lint
         working-directory: migrations
+
+      - run: npm run coverage
+        working-directory: migrations
+
+  # Secrets in any commit of any repository, and vulnerable dependencies in
+  # the test tooling (each service audits its own in the unit job).
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Full history for every submodule
+        run: git submodule foreach --quiet 'git fetch --quiet --unshallow || true'
+
+      - name: gitleaks (parent and every submodule)
+        run: |
+          status=0
+          for repo in . $(git submodule foreach --quiet 'echo $sm_path'); do
+            echo "== $repo"
+            docker run --rm -u "$(id -u):$(id -g)" -v "$PWD":/repo \
+              zricethezav/gitleaks:v8.28.0 git "/repo/$repo" --no-banner --redact || status=1
+          done
+          exit $status
+
+      - run: npm audit --omit=dev --audit-level=high
+        working-directory: tests/e2e
 
   gateway:
     runs-on: ubuntu-latest
@@ -93,7 +129,7 @@ jobs:
           kong config parse /kong/kong.yml
 
   integration:
-    needs: [unit, migrations, gateway]
+    needs: [unit, migrations, gateway, security]
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
@@ -110,7 +146,7 @@ jobs:
       - run: tests/run-integration.sh
 
   e2e:
-    needs: [unit, migrations, gateway]
+    needs: [unit, migrations, gateway, security]
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:

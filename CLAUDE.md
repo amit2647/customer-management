@@ -20,8 +20,8 @@ the submodule — commits there belong to that service's own repo, not the paren
 submodule and want the parent repo to track the new commit, that's a separate `git add <submodule>`
 + commit in the parent after the submodule itself is committed/pushed.
 
-Every repo has tests; there are still no linters or formatters (don't assume `eslint`/`prettier`).
-See **Testing** below.
+Every repo has tests and ESLint (`npm test`, `npm run lint`, `npm run coverage`); there is no
+formatter (don't assume `prettier`). See **Testing** below.
 
 ## Configuration
 
@@ -90,15 +90,25 @@ unit tests on its own pushes (`.github/workflows/test.yml`).
 - **Integration** — `tests/run-integration.sh` boots the whole stack as project `cmtest` with
   `docker-compose.test.yml`, runs `tests/integration/*.test.js` through Kong on port 18080, then
   `down -v`s that project only. `KEEP=1` leaves it up. It never touches the main stack's data.
-  Mail goes to **Mailpit** in that stack (API on 18025), so email and automation tests send real
-  SMTP that never leaves the machine. Organization isolation needs a user in a second
+  Outgoing mail goes to **Mailpit** (API on 18025) and replies are delivered into **GreenMail**
+  (IMAP; SMTP on 13025) for email-service to read back, so sending, automations and receiving are
+  all tested with real protocols and nothing leaves the machine. After the functional tests, a
+  **k6** load smoke (`tests/load/smoke.js`, 20 users, p95 < 800 ms, < 1% errors) runs on the same
+  stack; `LOAD=0` skips it. Organization isolation needs a user in a second
   organization, which no API creates; `lib.sql()` moves one there via the `cmtest` Postgres only.
 - **Browser** — `tests/run-e2e.sh` adds the UI (`--profile ui`, port 13000) and runs Playwright
   from Microsoft's image with `--network host`, so no browser is installed locally. Every test
   saves a screenshot to `tests/e2e/screenshots` (the assistant in all four themes, the docked
   panel's position, profile, access denial); CI uploads them as the `e2e-screenshots` artifact.
 - **Lockfiles** — every repo has `package-lock.json` and CI installs with `npm ci`. Regenerate
-  with `npm install` after changing dependencies, and commit the lockfile with it.
+  with `npm install` after changing dependencies, and commit the lockfile with it. If you do that
+  in Docker, pass `-u "$(id -u):$(id -g)"`: run as root, npm writes a root-owned lockfile back
+  into the repo.
+- **CI gates** — every repo lints and runs `npm audit --omit=dev --audit-level=high`; the parent's
+  `security` job also runs gitleaks over the full history of the parent and every submodule.
+  Coverage is printed, not enforced.
+- **Real model** — `tests/smoke-openrouter.sh` is manual only: one question to the real model
+  through the dev stack, checking it called a tool. It spends credit; never add it to CI.
 
 In the test stack the assistant talks to `tests/fake-openrouter`, a scripted stand-in: the last user
 message is the script (`TOOL <name> <json>`, `SLOW <ms> <text>`, `FAILONCE <key> <text>`, else
@@ -299,6 +309,16 @@ Qdrant is a **derived index; Postgres is the source of truth**. Two collections:
 - `QDRANT_API_KEY` is passed to assistant-service under `environment:` on purpose, so it resolves
   the same way as in the `qdrant` container. Do not leave it to `env_file`.
 
+### Email
+
+- Automations send through the organization's **default** account, which only resolves when
+  exactly one account is active. With two active accounts every automation fails ("Multiple active
+  email accounts"); the automation form has no account picker yet.
+- `emailReceiver.js` reconciles IMAP receivers with active accounts every `EMAIL_RECEIVER_SYNC_MS`
+  (default 60 s): new accounts start, dropped connections reconnect, deactivated ones stop. It
+  used to start receivers only at boot and never reconnect.
+- nodemailer is on v10; v7 carried ten advisories including SMTP/header injection.
+
 ### Lead conversion
 
 `POST /api/leads/:id/convert` (lead-service) is the one cross-service write transaction: it creates
@@ -347,5 +367,8 @@ a customer (via customer-service), copies the lead's service mappings, and marks
   `.assistant-page-card` only, with separate fills for the light and dark themes. The shared glass
   rule must **not** set `position`: the panel is `position: fixed`, and a `relative` in that
   shared block once unpinned it from the corner (same specificity, later in the file).
+- Dashboard figures are built from the caller's own view of leads, customers and services, so its
+  Redis cache key includes which of those the caller can read (`readScope`). A key by
+  organization alone once served a Dashboard-only grant an admin's figures and lead names.
 - Page chrome (breadcrumb, header, cards) is defined **per page** in `styles/`, not shared — when
   adding a screen, expect to copy a block rather than find a generic rule.

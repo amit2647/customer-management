@@ -92,9 +92,34 @@ describe("guest invites", () => {
     assert.equal(status, 401);
   });
 
+  test("the link can be reopened while the grant is active (another device, lost session)", async () => {
+    const again = await api("POST", "/access-grants/redeem", { body: { token: inviteToken } });
+
+    assert.equal(again.status, 200);
+    assert.equal((await api("GET", "/leads", { token: again.body.token })).status, 200);
+  });
+
   test("a made-up invite token is refused", async () => {
     const { status } = await api("POST", "/access-grants/redeem", { body: { token: "not-a-real-token" } });
 
     assert.equal(status, 404);
   });
+});
+
+test("a revoked invite link stops working", async () => {
+  const admin = await adminToken();
+  const granted = await api("POST", "/access-grants", {
+    token: admin,
+    body: {
+      subject_email: `${unique("revoked-guest")}@test.example`,
+      permission_code: "leads.read",
+      duration_minutes: 30,
+      reason: "integration test",
+    },
+  });
+
+  await api("POST", `/access-grants/${granted.body.grants[0].id}/revoke`, { token: admin });
+
+  const { status } = await api("POST", "/access-grants/redeem", { body: { token: granted.body.inviteToken } });
+  assert.equal(status, 404);
 });

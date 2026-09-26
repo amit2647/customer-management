@@ -130,3 +130,75 @@ test("a screen without permission says so", async ({ page, request }) => {
   await expect(page.getByRole("heading", { name: /no access to this screen/i })).toBeVisible();
   await shot(page, "access-denied");
 });
+
+test("a change proposed by the assistant is confirmed from its card", async ({ page, request }) => {
+  await prepare(page);
+  await signIn(page);
+  await page.goto("/assistant");
+  await page.getByRole("button", { name: "New chat" }).first().click();
+
+  const name = `E2E Confirmed ${Date.now()}`;
+  const input = page.locator(".assistant-composer input");
+
+  await input.fill(`TOOL create_lead {"name": "${name}", "email": "e2e-${Date.now()}@test.example"}`);
+  await input.press("Enter");
+
+  const card = page.locator(".assistant-confirm");
+  await expect(card).toBeVisible();
+  await expect(card).toContainText(name);
+  // While a change waits for a decision, nothing else can be sent.
+  await expect(input).toBeDisabled();
+  await shot(page, "assistant-confirm-card");
+
+  await card.getByRole("button", { name: "Confirm" }).click();
+  await expect(card).toBeHidden();
+  await expect(page.getByText(/Tool said:/)).toBeVisible();
+
+  const login = await request.post(`${API}/auth/login`, { data: ADMIN });
+  const { token } = await login.json();
+  const leads = await (
+    await request.get(`${API}/leads?q=${encodeURIComponent(name)}`, { headers: { Authorization: `Bearer ${token}` } })
+  ).json();
+  const list = Array.isArray(leads) ? leads : leads.leads || [];
+
+  expect(list.filter((lead) => lead.name === name)).toHaveLength(1);
+});
+
+test.describe("on a phone-sized screen", () => {
+  test.use({ viewport: { width: 390, height: 844 } });
+
+  test("the page fits, and history opens as a drawer", async ({ page }) => {
+    await prepare(page, "coral");
+    await signIn(page);
+    await page.goto("/assistant");
+
+    // No sideways scrolling at phone width.
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    expect(overflow).toBeLessThanOrEqual(1);
+
+    const drawer = page.locator(".assistant-history");
+    const toggle = page.getByRole("button", { name: "History" });
+
+    await expect(toggle).toBeVisible();
+    expect((await drawer.boundingBox()).x).toBeLessThan(0);
+    await shot(page, "mobile-assistant");
+
+    await toggle.click();
+    await expect(drawer).toHaveClass(/is-open/);
+    await page.waitForTimeout(400);
+    expect((await drawer.boundingBox()).x).toBeGreaterThanOrEqual(0);
+    await shot(page, "mobile-history-drawer");
+  });
+
+  test("the docked panel fits the screen", async ({ page }) => {
+    await prepare(page);
+    await signIn(page);
+
+    await page.locator("button.assistant-button").click();
+
+    const box = await page.locator(".assistant-panel").boundingBox();
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(390);
+    await shot(page, "mobile-panel");
+  });
+});

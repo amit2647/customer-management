@@ -57,6 +57,8 @@ services:
     ports: !reset []
     environment:
       AUTOMATION_POLL_INTERVAL_MS: "1000"
+      # Picks up the test's email account seconds after it is created.
+      EMAIL_RECEIVER_SYNC_MS: "2000"
 
   # The model settings come from a test file instead of .env, so the real
   # OpenRouter key is never loaded and the assistant talks to the fake below.
@@ -109,3 +111,15 @@ services:
       MP_SMTP_AUTH_ALLOW_INSECURE: "1"
     ports:
       - "${TEST_MAIL_PORT:-18025}:8025"
+
+  # An IMAP mailbox for receiving tests (Mailpit only catches outgoing mail).
+  # Any login is accepted and creates the mailbox; tests deliver "replies"
+  # into it over SMTP, and email-service reads them back over IMAP.
+  greenmail:
+    image: greenmail/standalone:2.1.5
+    environment:
+      GREENMAIL_OPTS: >-
+        -Dgreenmail.setup.test.smtp -Dgreenmail.setup.test.imap
+        -Dgreenmail.hostname=0.0.0.0 -Dgreenmail.auth.disabled
+    ports:
+      - "${TEST_GREENMAIL_SMTP_PORT:-13025}:3025"

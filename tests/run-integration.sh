@@ -6,6 +6,7 @@
 #
 #   tests/run-integration.sh            # build, test, tear down
 #   KEEP=1 tests/run-integration.sh     # leave the stack up afterwards
+#   LOAD=0 tests/run-integration.sh     # skip the k6 load smoke test
 #
 set -uo pipefail
 
@@ -17,6 +18,7 @@ COMPOSE=(docker compose -p "$PROJECT" -f docker-compose.yml -f docker-compose.te
 export TEST_KONG_PORT="${TEST_KONG_PORT:-18080}"
 export TEST_FAKE_MODEL_PORT="${TEST_FAKE_MODEL_PORT:-18099}"
 export TEST_MAIL_PORT="${TEST_MAIL_PORT:-18025}"
+export TEST_GREENMAIL_SMTP_PORT="${TEST_GREENMAIL_SMTP_PORT:-13025}"
 
 API="http://localhost:${TEST_KONG_PORT}/api"
 
@@ -60,8 +62,18 @@ fi
 echo "==> Running integration tests"
 API_BASE="$API" FAKE_MODEL_URL="http://localhost:${TEST_FAKE_MODEL_PORT}" \
   MAIL_URL="http://localhost:${TEST_MAIL_PORT}" \
+  REPLY_SMTP_PORT="${TEST_GREENMAIL_SMTP_PORT}" \
   node --test --test-concurrency=1 tests/integration/*.test.js
 status=$?
+
+# Load smoke test (k6) on the same stack, only if everything above passed.
+# LOAD=0 skips it.
+if [ "$status" = "0" ] && [ "${LOAD:-1}" != "0" ]; then
+  echo "==> Running the load smoke test"
+  docker run --rm --network host -u "$(id -u):$(id -g)" -v "$PWD/tests/load":/load \
+    grafana/k6:1.3.0 run --quiet -e API_BASE="$API" /load/smoke.js
+  status=$?
+fi
 
 if [ "$status" != "0" ]; then
   echo "!! Tests failed; recent service logs follow"

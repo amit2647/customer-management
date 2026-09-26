@@ -13,12 +13,14 @@
  * browser.
  *
  * GET /__calls returns how many completions were requested, so a test can
- * prove a retried message did not reach the model a second time.
+ * prove a retried message did not reach the model a second time; GET /__last
+ * returns the most recent request, prompt included.
  */
 
 const http = require("http");
 
 let calls = 0;
+let lastRequest = null;
 let toolCallCounter = 0;
 const failedOnce = new Set();
 
@@ -93,6 +95,11 @@ const server = http.createServer((req, res) => {
     return send(res, 200, { calls });
   }
 
+  // The most recent prompt, so a test can see what the assistant sent.
+  if (req.method === "GET" && req.url === "/__last") {
+    return send(res, 200, lastRequest || {});
+  }
+
   if (req.method === "GET" && req.url === "/health") {
     return send(res, 200, { status: "ok" });
   }
@@ -105,7 +112,8 @@ const server = http.createServer((req, res) => {
       raw += chunk;
     });
     req.on("end", () => {
-      complete(JSON.parse(raw || "{}"), res).catch((error) =>
+      lastRequest = JSON.parse(raw || "{}");
+      complete(lastRequest, res).catch((error) =>
         send(res, 500, { error: { message: error.message } }),
       );
     });
