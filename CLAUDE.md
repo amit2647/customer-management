@@ -95,7 +95,7 @@ Kong routes by path prefix (`kong/kong.yml`), stripping the prefix before forwar
 
 identity-service serves more than `/api/auth`; each of these is a separate Kong entry pointing
 at its own upstream path: `/api/users`, `/api/roles`, `/api/permissions`,
-`/api/organizations`, `/api/access-grants`.
+`/api/organizations`, `/api/access-grants`, `/api/profile`.
 
 Service-to-service calls (e.g. lead-service calling customer-service/service-service during lead
 creation/conversion) go directly over the Docker network via `*_SERVICE_URL` env vars, bypassing

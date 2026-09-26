@@ -511,6 +511,9 @@ GET    /access-grants
 POST   /access-grants
 POST   /access-grants/:id/revoke
 POST   /access-grants/redeem      (unauthenticated: the token is the credential)
+GET    /profile                   (the caller's own record; no permission needed)
+PATCH  /profile                   (name, and email with the current password)
+PUT    /profile/password
 ```
 
 Repository:
