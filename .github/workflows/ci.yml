@@ -37,7 +37,7 @@ jobs:
         with:
           node-version: 22
 
-      - run: npm install --no-audit --no-fund
+      - run: npm ci --no-audit --no-fund
         working-directory: ${{ matrix.repo }}
 
       - run: npm test
@@ -74,7 +74,7 @@ jobs:
         with:
           node-version: 22
 
-      - run: npm install --no-audit --no-fund
+      - run: npm ci --no-audit --no-fund
         working-directory: migrations
 
       - run: npm test
@@ -108,3 +108,29 @@ jobs:
       # Boots the stack as a throwaway `cmtest` project against a scripted
       # stand-in for OpenRouter: no real model, no credits, no secrets.
       - run: tests/run-integration.sh
+
+  e2e:
+    needs: [unit, migrations, gateway]
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # The whole stack plus the UI, driven by Playwright in Microsoft's image.
+      - run: tests/run-e2e.sh
+        env:
+          CI: "true"
+
+      # Screenshots of every screen tested — including the assistant in all
+      # four themes — and Playwright's report, downloadable from the run.
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-screenshots
+          path: |
+            tests/e2e/screenshots
+            tests/e2e/report
+            tests/e2e/results
+          if-no-files-found: ignore

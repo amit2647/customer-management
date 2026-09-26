@@ -1,7 +1,7 @@
 const { describe, test, before } = require("node:test");
 const assert = require("node:assert/strict");
 
-const { api, adminToken, createUser } = require("./lib");
+const { api, adminToken, createUser, unique } = require("./lib");
 
 /*
  * Role-based access, enforced by the service that owns the data. A support
@@ -64,5 +64,44 @@ describe("assigning permissions needs system.settings", () => {
     });
 
     assert.equal(status, 400);
+  });
+});
+
+describe("creating users cannot escalate", () => {
+  // Operations Manager holds users.create but not system.settings; of the
+  // built-in roles, only Customer Support Agent is within its permissions.
+  let ops;
+
+  before(async () => {
+    ops = await createUser(admin, "OPERATIONS_MANAGER");
+  });
+
+  function create(token, roleCode) {
+    const email = `${unique("made")}@test.example`;
+
+    return api("POST", "/users", {
+      token,
+      body: { name: "Made", email, password: "Made-Pass-123!", roleCode },
+    });
+  }
+
+  test("cannot create a Super Admin", async () => {
+    assert.equal((await create(ops.token, "SUPER_ADMIN")).status, 403);
+  });
+
+  test("cannot create a role with permissions it lacks", async () => {
+    assert.equal((await create(ops.token, "SALES_REP")).status, 403);
+  });
+
+  test("can create a role within its own permissions", async () => {
+    assert.equal((await create(ops.token, "CUSTOMER_SUPPORT_AGENT")).status, 201);
+  });
+
+  test("with system.settings, any role can be assigned", async () => {
+    assert.equal((await create(admin, "SALES_REP")).status, 201);
+  });
+
+  test("an unknown role is refused", async () => {
+    assert.equal((await create(ops.token, "NOT_A_ROLE")).status, 400);
   });
 });

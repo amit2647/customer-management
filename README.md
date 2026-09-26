@@ -1823,7 +1823,8 @@ Every repository has tests, and GitHub Actions runs them on each push.
 | Unit | each service (`node --test`), `frontend` (Vitest) | `npm test` inside the repo |
 | Migrations | SQL rule checks, plus a real double run on a disposable Postgres | `npm test` in `migrations` (the database part needs `MIGRATIONS_TEST_DB`) |
 | Gateway | `kong config parse` on `kong.yml` | CI |
-| Integration | the whole stack through Kong, as a throwaway `cmtest` project | `tests/run-integration.sh` |
+| Integration | the whole stack through Kong, as a throwaway `cmtest` project, with Mailpit catching email | `tests/run-integration.sh` |
+| Browser | Playwright against the real UI, saving screenshots | `tests/run-e2e.sh` |
 
 The integration run never touches your local data: it uses its own Docker
 project and volumes and removes them afterwards. The assistant is pointed at a

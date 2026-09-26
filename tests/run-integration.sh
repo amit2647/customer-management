@@ -16,6 +16,7 @@ COMPOSE=(docker compose -p "$PROJECT" -f docker-compose.yml -f docker-compose.te
 
 export TEST_KONG_PORT="${TEST_KONG_PORT:-18080}"
 export TEST_FAKE_MODEL_PORT="${TEST_FAKE_MODEL_PORT:-18099}"
+export TEST_MAIL_PORT="${TEST_MAIL_PORT:-18025}"
 
 API="http://localhost:${TEST_KONG_PORT}/api"
 
@@ -58,6 +59,7 @@ fi
 
 echo "==> Running integration tests"
 API_BASE="$API" FAKE_MODEL_URL="http://localhost:${TEST_FAKE_MODEL_PORT}" \
+  MAIL_URL="http://localhost:${TEST_MAIL_PORT}" \
   node --test --test-concurrency=1 tests/integration/*.test.js
 status=$?
 

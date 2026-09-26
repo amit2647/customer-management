@@ -90,6 +90,15 @@ unit tests on its own pushes (`.github/workflows/test.yml`).
 - **Integration** — `tests/run-integration.sh` boots the whole stack as project `cmtest` with
   `docker-compose.test.yml`, runs `tests/integration/*.test.js` through Kong on port 18080, then
   `down -v`s that project only. `KEEP=1` leaves it up. It never touches the main stack's data.
+  Mail goes to **Mailpit** in that stack (API on 18025), so email and automation tests send real
+  SMTP that never leaves the machine. Organization isolation needs a user in a second
+  organization, which no API creates; `lib.sql()` moves one there via the `cmtest` Postgres only.
+- **Browser** — `tests/run-e2e.sh` adds the UI (`--profile ui`, port 13000) and runs Playwright
+  from Microsoft's image with `--network host`, so no browser is installed locally. Every test
+  saves a screenshot to `tests/e2e/screenshots` (the assistant in all four themes, the docked
+  panel's position, profile, access denial); CI uploads them as the `e2e-screenshots` artifact.
+- **Lockfiles** — every repo has `package-lock.json` and CI installs with `npm ci`. Regenerate
+  with `npm install` after changing dependencies, and commit the lockfile with it.
 
 In the test stack the assistant talks to `tests/fake-openrouter`, a scripted stand-in: the last user
 message is the script (`TOOL <name> <json>`, `SLOW <ms> <text>`, `FAILONCE <key> <text>`, else
@@ -222,8 +231,9 @@ Two conventions worth knowing before editing routes:
 
 - **Assigning permissions is gated on `system.settings`**, not on the `*.update` permission for
   the thing being edited. Role CRUD, access grants and changing a user's role all follow this;
-  otherwise anyone who could rename a colleague could promote them. (`createUser` is the known
-  exception — it still accepts any `roleCode` with `users.create`.)
+  otherwise anyone who could rename a colleague could promote them. Creating a user follows the
+  same idea: without `system.settings`, `createUser` only accepts a role whose every permission
+  the caller already holds (delegate, never escalate).
 - `service-service` has a `requireAnyPermission` middleware used by **`GET /services/:id` only**.
   lead-service and customer-service resolve service names by calling it with the end user's token,
   so requiring `services.read` there would force anyone who can read leads to also be handed the

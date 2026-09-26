@@ -1,0 +1,11 @@
+{
+    "name": "omnicore-e2e",
+    "private": true,
+    "description": "Browser tests against the throwaway test stack; run with tests/run-e2e.sh",
+    "scripts": {
+        "test": "playwright test"
+    },
+    "devDependencies": {
+        "@playwright/test": "1.63.0"
+    }
+}

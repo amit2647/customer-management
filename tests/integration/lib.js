@@ -5,6 +5,8 @@
  */
 
 const crypto = require("crypto");
+const path = require("path");
+const { spawnSync } = require("child_process");
 
 const API = process.env.API_BASE || "http://localhost:18080/api";
 const FAKE_MODEL = process.env.FAKE_MODEL_URL || "http://localhost:18099";
@@ -92,4 +94,38 @@ async function waitFor(check, { timeout = 30000, interval = 500, what = "conditi
 
 const uuid = () => crypto.randomUUID();
 
-module.exports = { api, login, adminToken, createUser, unique, uuid, modelCalls, waitFor, ADMIN };
+/*
+ * Direct SQL on the test stack's database, for fixtures the API deliberately
+ * cannot create (a user in a second organization). Only ever the `cmtest`
+ * project, and it reads the container's own credentials.
+ */
+function sql(query) {
+  const result = spawnSync(
+    "docker",
+    [
+      "compose",
+      "-p",
+      "cmtest",
+      "-f",
+      "docker-compose.yml",
+      "-f",
+      "docker-compose.test.yml",
+      "exec",
+      "-T",
+      "postgres",
+      "sh",
+      "-c",
+      'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc "$0"',
+      query,
+    ],
+    { cwd: path.join(__dirname, "..", ".."), encoding: "utf8" },
+  );
+
+  if (result.status !== 0) {
+    throw new Error(`sql failed: ${result.stderr}`);
+  }
+
+  return result.stdout.trim();
+}
+
+module.exports = { api, login, adminToken, createUser, unique, uuid, modelCalls, waitFor, sql, ADMIN };

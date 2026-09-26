@@ -51,9 +51,12 @@ services:
     container_name: !reset null
     ports: !reset []
 
+  # Polls faster so automation tests do not wait ten seconds per event.
   email-service:
     container_name: !reset null
     ports: !reset []
+    environment:
+      AUTOMATION_POLL_INTERVAL_MS: "1000"
 
   # The model settings come from a test file instead of .env, so the real
   # OpenRouter key is never loaded and the assistant talks to the fake below.
@@ -72,11 +75,15 @@ services:
     ports: !override
       - "${TEST_KONG_PORT:-18080}:8000"
 
-  # Not needed for API tests; `--profile ui` brings it back.
+  # Not needed for API tests; `--profile ui` brings it back for the browser
+  # tests (tests/run-e2e.sh), pointed at this stack's gateway.
   frontend:
     container_name: !reset null
-    ports: !reset []
     profiles: ["ui"]
+    environment:
+      VITE_API_BASE_URL: "http://localhost:${TEST_KONG_PORT:-18080}/api"
+    ports: !override
+      - "${TEST_UI_PORT:-13000}:3000"
 
   fake-openrouter:
     image: node:22-alpine
@@ -91,3 +98,14 @@ services:
       interval: 2s
       timeout: 2s
       retries: 20
+
+  # Catches every email the test stack sends; nothing leaves the machine.
+  # SMTP on 1025 (any credentials accepted), and an HTTP API the tests read
+  # the caught messages from.
+  mailpit:
+    image: axllent/mailpit:v1.27
+    environment:
+      MP_SMTP_AUTH_ACCEPT_ANY: "1"
+      MP_SMTP_AUTH_ALLOW_INSECURE: "1"
+    ports:
+      - "${TEST_MAIL_PORT:-18025}:8025"
