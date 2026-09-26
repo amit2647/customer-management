@@ -249,5 +249,24 @@ a customer (via customer-service), copies the lead's service mappings, and marks
   the panel and page are chrome only.
 - Assistant replies are rendered as Markdown (`react-markdown` + `remark-gfm`). `rehype-raw` is
   deliberately absent: model output is untrusted, so raw HTML stays escaped.
+- The assistant is reachable from a header button and a sidebar entry above Settings. Neither is
+  permission-gated, matching the route and the backend.
+- The assistant's status orb is `thinking-orbs` (MIT, zero dependencies, a transparent 2D canvas).
+  Its state is derived **once**, as `state` in `AssistantContext` (`idle` / `listening` /
+  `processing` / `responding` / `confirming`), so the orb and its caption cannot disagree.
+  `AssistantOrb.jsx` maps those onto the library's own animations. Three things about the library
+  that are easy to get wrong:
+  - `size` is `64 | 32 | 20` — separate tuned designs, not a scale factor. `resolvePreset` throws
+    for anything above 64, so the page's hero orb is scaled in CSS via `--orb-scale`, which trades
+    some sharpness for size. The same variable drives the margin that reserves its height, because
+    a transform does not affect layout.
+  - `theme="auto"` looks for `data-theme="dark|light"`. Ours reads `lemon|cobalt|mint|coral`, so
+    auto would fall through to `prefers-color-scheme`. The theme is pinned from `ThemeContext`.
+  - The canvas is transparent. Never give an orb selector a background, border or shadow — it
+    shows as a plate behind the dots instead of letting the glass through.
+- The assistant's glass (`backdrop-filter`) is scoped to `.assistant-panel` and
+  `.assistant-page-card` only, with separate fills for the light and dark themes. The shared glass
+  rule must **not** set `position`: the panel is `position: fixed`, and a `relative` in that
+  shared block once unpinned it from the corner (same specificity, later in the file).
 - Page chrome (breadcrumb, header, cards) is defined **per page** in `styles/`, not shared — when
   adding a screen, expect to copy a block rather than find a generic rule.

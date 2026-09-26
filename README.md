@@ -123,7 +123,12 @@ The same mechanism extended to people who have no account at all.
 An in-product assistant that answers questions about the organization's own
 data and performs operations on the user's behalf.
 
-- Available from the header on every screen
+- Available on every screen, from the header or the sidebar, as a docked panel
+  that can expand to a full page — both views share one conversation
+- An animated status orb shows what it is doing: ready, listening, thinking,
+  responding, or waiting for you to confirm a change
+- Replies render as Markdown, including tables; raw HTML in model output is
+  escaped rather than rendered
 - Answers only from live data, retrieved through tools
 - Confined to the product: off-topic questions are declined
 - Constrained to the signed-in user's permissions — the tool catalog is
@@ -1306,8 +1311,6 @@ customer-management/
 │
 ├── .git/
 ├── .gitmodules
-│
-├── docker-compose.yml
 ├── README.md
 │
 ├── .env                 (not committed)
@@ -1764,6 +1767,7 @@ Potential further AI capabilities include:
 | Email                   | SMTP and IMAP        |
 | AI provider             | OpenRouter           |
 | Agent protocol          | Model Context Protocol (MCP) |
+| Assistant UI            | `react-markdown`, `thinking-orbs` |
 | Schema migrations       | Custom runner (SQL + ledger) |
 | Version Control         | Git                  |
 | Repository Architecture | Git Submodules       |
