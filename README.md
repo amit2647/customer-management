@@ -1814,6 +1814,24 @@ Potential further AI capabilities include:
 
 ---
 
+# Testing
+
+Every repository has tests, and GitHub Actions runs them on each push.
+
+| Layer | Where | Run it |
+| ----- | ----- | ------ |
+| Unit | each service (`node --test`), `frontend` (Vitest) | `npm test` inside the repo |
+| Migrations | SQL rule checks, plus a real double run on a disposable Postgres | `npm test` in `migrations` (the database part needs `MIGRATIONS_TEST_DB`) |
+| Gateway | `kong config parse` on `kong.yml` | CI |
+| Integration | the whole stack through Kong, as a throwaway `cmtest` project | `tests/run-integration.sh` |
+
+The integration run never touches your local data: it uses its own Docker
+project and volumes and removes them afterwards. The assistant is pointed at a
+scripted fake model (`tests/fake-openrouter`), so tests need no OpenRouter key
+and spend no credit.
+
+---
+
 # Technology Stack
 
 | Layer                   | Technology           |

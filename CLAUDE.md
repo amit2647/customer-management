@@ -20,8 +20,8 @@ the submodule — commits there belong to that service's own repo, not the paren
 submodule and want the parent repo to track the new commit, that's a separate `git add <submodule>`
 + commit in the parent after the submodule itself is committed/pushed.
 
-There are no test suites, linters, or formatters configured anywhere in this repo (parent or any
-submodule) — don't assume `npm test`/`eslint` exist.
+Every repo has tests; there are still no linters or formatters (don't assume `eslint`/`prettier`).
+See **Testing** below.
 
 ## Configuration
 
@@ -73,6 +73,30 @@ docker compose up migrate     # re-run migrations alone (idempotent)
 - Individual services can be run outside Docker with `npm start` (or `npm run dev` for
   auto-restart, where available) from within the submodule directory, provided `DB_HOST`,
   `JWT_SECRET`, etc. are set to match `docker-compose.yml`.
+
+## Testing
+
+Three layers, all run by `.github/workflows/ci.yml` in the parent; each submodule also runs its own
+unit tests on its own pushes (`.github/workflows/test.yml`).
+
+- **Unit** — `npm test` in any service (`node --test`, no extra dependencies) or in `frontend`
+  (Vitest + Testing Library, jsdom). Every service tests its own copy of the auth middleware from
+  one shared template, asserting status codes and `next()` rather than error bodies, since the
+  copies differ only in wording. Databases, the model and other services are stubbed.
+- **Migrations** — `migrations/test/sql-rules.test.js` enforces the migration rules below
+  (no DROP/TRUNCATE/DELETE, no `password_hash` UPDATE, `IF NOT EXISTS`, guarded constraints).
+  `idempotency.test.js` runs every migration twice, but **only** when `MIGRATIONS_TEST_DB` names a
+  disposable database, and it refuses `customer_management`.
+- **Integration** — `tests/run-integration.sh` boots the whole stack as project `cmtest` with
+  `docker-compose.test.yml`, runs `tests/integration/*.test.js` through Kong on port 18080, then
+  `down -v`s that project only. `KEEP=1` leaves it up. It never touches the main stack's data.
+
+In the test stack the assistant talks to `tests/fake-openrouter`, a scripted stand-in: the last user
+message is the script (`TOOL <name> <json>`, `SLOW <ms> <text>`, `FAILONCE <key> <text>`, else
+echo), and `GET /__calls` counts model calls. assistant-service reaches it through
+`OPENROUTER_BASE_URL`, loaded from `tests/integration/assistant.env` via `env_file`. So tests
+spend no OpenRouter credit and hold no real key. Fresh test databases seed email automations
+switched off and no email accounts, so nothing in the suite can send mail.
 
 ## Architecture
 

@@ -1,0 +1,93 @@
+# Override for the integration tests. Always used with its own project name:
+#
+#   tests/run-integration.sh
+#
+# (which runs `docker compose -p cmtest -f docker-compose.yml -f docker-compose.test.yml ...`)
+#
+# -p gives the stack its own containers and volumes, so it runs beside the main
+# stack and `down -v` afterwards only ever removes the test data. Fixed
+# container names and host ports are stripped for the same reason; only the
+# gateway and the fake model are published, on ports the dev stack does not use.
+
+services:
+  postgres:
+    container_name: !reset null
+
+  redis:
+    container_name: !reset null
+    ports: !reset []
+
+  qdrant:
+    container_name: !reset null
+
+  # Known credentials for the tests to sign in with, whatever .env says.
+  migrate:
+    container_name: !reset null
+    environment:
+      BOOTSTRAP_ORG_NAME: "Test Organization"
+      BOOTSTRAP_ORG_SLUG: "test-organization"
+      BOOTSTRAP_ADMIN_NAME: "Test Admin"
+      BOOTSTRAP_ADMIN_EMAIL: "admin@test.example"
+      BOOTSTRAP_ADMIN_PASSWORD: "Test-Admin-123!"
+      SEED_DEMO_DATA: "true"
+
+  service-service:
+    container_name: !reset null
+    ports: !reset []
+
+  customer-service:
+    container_name: !reset null
+    ports: !reset []
+
+  lead-service:
+    container_name: !reset null
+    ports: !reset []
+
+  identity-service:
+    container_name: !reset null
+    ports: !reset []
+
+  dashboard-service:
+    container_name: !reset null
+    ports: !reset []
+
+  email-service:
+    container_name: !reset null
+    ports: !reset []
+
+  # The model settings come from a test file instead of .env, so the real
+  # OpenRouter key is never loaded and the assistant talks to the fake below.
+  # Still env_file, not environment: — the rule in CLAUDE.md holds here too.
+  assistant-service:
+    container_name: !reset null
+    ports: !reset []
+    env_file: !override
+      - path: tests/integration/assistant.env
+    depends_on:
+      fake-openrouter:
+        condition: service_healthy
+
+  kong:
+    container_name: !reset null
+    ports: !override
+      - "${TEST_KONG_PORT:-18080}:8000"
+
+  # Not needed for API tests; `--profile ui` brings it back.
+  frontend:
+    container_name: !reset null
+    ports: !reset []
+    profiles: ["ui"]
+
+  fake-openrouter:
+    image: node:22-alpine
+    working_dir: /app
+    command: ["node", "server.js"]
+    volumes:
+      - ./tests/fake-openrouter:/app:ro
+    ports:
+      - "${TEST_FAKE_MODEL_PORT:-18099}:4099"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:4099/health"]
+      interval: 2s
+      timeout: 2s
+      retries: 20
