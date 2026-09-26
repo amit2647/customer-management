@@ -125,6 +125,14 @@ data and performs operations on the user's behalf.
 
 - Available on every screen, from the header or the sidebar, as a docked panel
   that can expand to a full page — both views share one conversation
+- **Conversations are saved server-side**: a reload, another tab or another
+  device continues the same thread, and the full page lists past conversations
+  with rename, delete and **search by meaning or by words**
+- Remembers earlier turns: the data it looked up is kept and replayed to the
+  model, and in long threads the most relevant older messages are recalled
+- Explains the platform itself — how to use each screen, and, for people
+  allowed to see Settings, how it is configured: users, roles, permissions,
+  temporary access, email templates, automations and accounts
 - An animated status orb shows what it is doing: ready, listening, thinking,
   responding, or waiting for you to confirm a change
 - Replies render as Markdown, including tables; raw HTML in model output is
@@ -135,7 +143,9 @@ data and performs operations on the user's behalf.
   filtered before the model is invoked, so the assistant has no vocabulary for
   features the user cannot access
 - Changes are never applied on the model's say-so: they are shown for
-  confirmation first, and destructive ones are marked
+  confirmation first, and destructive ones are marked. Confirming runs the
+  change the server stored — never arguments sent back by the browser — and a
+  double-clicked Confirm runs it once
 - The same catalog is served over **MCP**, so an external MCP client can drive
   the product with the same JWT
 
@@ -223,6 +233,14 @@ The conversion operation is performed transactionally so that the customer creat
                                |
                                v
                      Dashboard Service :4005
+
+                        +-------------+
+                        |   Qdrant    |  vector index of assistant
+                        |  (internal) |  conversations and help docs;
+                        +------+------+  rebuildable from PostgreSQL
+                               ^
+                               |
+                     Assistant Service :4007
 ```
 
 Every service starts only after `migrate` has exited successfully, so the schema
@@ -574,25 +592,49 @@ single tool catalog.
 
 Responsibilities:
 
-- Chat API for the in-product assistant
+- Persistent, per-user conversations for the in-product assistant
 - MCP server exposing the product's operations
-- Tool catalog covering leads, customers, services, dashboard and email
+- Tool catalog covering leads, customers, services, dashboard, email, read-only
+  settings, and product help
 - Permission-scoped tool exposure
 - Confirmation gating for anything that changes data
+- Semantic search over conversation history, and recall in long threads
 
 Main API:
 
 ```http
-POST   /assistant/chat
+GET    /assistant/conversations                         (history, keyset-paged)
+GET    /assistant/conversations/search?q=               (meaning + words)
+GET    /assistant/conversations/:id/messages?before=    (one page of a thread)
+POST   /assistant/conversations/:id/messages            ({ clientMessageId, content })
+POST   /assistant/conversations/:id/actions/:actionId/confirm
+POST   /assistant/conversations/:id/actions/:actionId/cancel
+PATCH  /assistant/conversations/:id                     (rename)
+DELETE /assistant/conversations/:id                     (soft delete)
 GET    /assistant/capabilities
-POST   /mcp                        (MCP over HTTP)
+POST   /mcp                                             (MCP over HTTP)
 ```
 
 It holds no business logic and touches no business tables. Every tool is an HTTP
 call onto the owning service carrying the signed-in user's bearer token, so
 authorization is decided in exactly one place — the service that owns the data.
-It reads the database only to resolve active just-in-time grants when
-authenticating a request.
+Its own tables hold the conversations.
+
+**Consistency.** A turn is three steps: a millisecond transaction that takes the
+conversation's turn lease and records the question, the model call with no
+transaction open, then one transaction committing everything the model
+produced. Duplicates are prevented by the schema: client-generated conversation
+and message ids make a retry return the stored answer, messages are numbered
+uniquely per conversation, and a pending change is claimed with an atomic
+`pending → executing` transition so it runs at most once.
+
+**Vector search.** Conversation prose and the product-help Markdown in
+`assistant-service/knowledge/` are embedded locally (`all-MiniLM-L6-v2`, no
+external API) and indexed in **Qdrant**. PostgreSQL stays the source of truth: a
+message is committed with an outbox marker, a background worker moves it into
+Qdrant, and every search hit is re-read from PostgreSQL with its owner checked
+again. Tool results are never embedded. If Qdrant is down, the assistant keeps
+working and search falls back to exact words.
 
 The model is reached through **OpenRouter**, configured with
 `OPENROUTER_API_KEY` and `OPENROUTER_MODEL`. Without a key the assistant returns
@@ -780,38 +822,49 @@ GET /api/services?q=cloud
 
 ## Ask the Assistant
 
+The client picks both ids (any UUIDs). The conversation is created by its first
+message, and resending the same `clientMessageId` returns the stored answer
+instead of asking again.
+
 ```http
-POST /api/assistant/chat
+POST /api/assistant/conversations/<conversationId>/messages
 Content-Type: application/json
 Authorization: Bearer <token>
 ```
 
 ```json
 {
-  "messages": [{ "role": "user", "content": "How many leads do I have?" }]
+  "clientMessageId": "375fa820-69d2-4f23-9830-e7fea36b4625",
+  "content": "How many leads do I have?"
 }
 ```
 
-The conversation is sent whole on each turn; the service keeps no session.
-
-A response either answers, or asks for confirmation before changing anything:
+A response carries the new messages, and a pending change when the assistant
+wants to modify something:
 
 ```json
 {
-  "reply": "",
-  "steps": [],
+  "messages": [
+    { "id": "1", "seq": 1, "role": "user", "content": "Create a lead for Priya Nair at Kestrel Analytics" }
+  ],
   "pendingAction": {
+    "id": "b2599baa-d332-44f2-b76a-09b300d08a82",
     "name": "create_lead",
-    "arguments": { "name": "Priya Nair", "company": "Kestrel Analytics" },
     "summary": "Create lead \"Priya Nair\" at Kestrel Analytics.",
-    "destructive": false
+    "destructive": false,
+    "status": "pending"
   }
 }
 ```
 
-Nothing has been written at this point. To apply it, send the same request again
-with the action echoed back under `confirm`. The service re-checks the caller's
-permission rather than trusting the returned payload.
+Nothing has been written at this point. To apply it:
+
+```http
+POST /api/assistant/conversations/<conversationId>/actions/<actionId>/confirm
+```
+
+The request has no body: the server runs the arguments it stored, and re-checks
+the caller's permission first. A second confirm gets `409`.
 
 ---
 
@@ -963,6 +1016,7 @@ above, the schema holds:
 | Identity | `organizations`, `users`, `roles`, `permissions`, `role_permissions`, `organization_users` |
 | Access   | `access_grants` (just-in-time and guest access)                           |
 | Email    | `email_accounts`, `email_conversations`, `communications`, `email_templates`, `email_automations`, `automation_events` |
+| Assistant | `assistant_conversations`, `assistant_messages`, `assistant_pending_actions` |
 | Schema   | `schema_migrations` (the migration ledger)                                |
 
 `services` is owned by the Service Service but referenced by `lead_services` and
@@ -1163,6 +1217,15 @@ talks to an external model is not also holding the seed admin password.
 Everything else *is* shell-overridable, which is normal and useful in CI — only
 the OpenRouter settings are pinned to the file.
 
+### Vector search
+
+| Variable         | Purpose                                                                 |
+| ---------------- | ----------------------------------------------------------------------- |
+| `QDRANT_API_KEY` | Shared secret between Qdrant and assistant-service. Not a provider key — generate one with `openssl rand -hex 32`. Empty runs Qdrant unauthenticated |
+
+Qdrant is not published to the host either way; the key stops other containers
+on the Docker network from reading conversation vectors.
+
 ---
 
 ## Proving a From-Scratch Boot
@@ -1219,6 +1282,7 @@ The Docker Compose environment contains the following major components:
 | migrate           |    — one-shot | Applies the schema, then exits     |
 | PostgreSQL        |  — not published | Database (internal network only) |
 | Redis             |          6379 | Dashboard caching                  |
+| Qdrant            |  — not published | Assistant vector index (internal network only) |
 
 The backend ports are published for debugging only. The frontend and all
 service-to-service calls go through the gateway or internal Docker DNS
@@ -1761,6 +1825,8 @@ Potential further AI capabilities include:
 | Database                | PostgreSQL           |
 | Database Driver         | node-postgres (`pg`) |
 | Cache                   | Redis                |
+| Vector search           | Qdrant               |
+| Embeddings              | `@huggingface/transformers` (`all-MiniLM-L6-v2`, local) |
 | Authentication          | JWT                  |
 | Containerization        | Docker               |
 | Orchestration           | Docker Compose       |

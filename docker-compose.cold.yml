@@ -15,6 +15,9 @@ services:
     container_name: !reset null
     ports: !reset []
 
+  qdrant:
+    container_name: !reset null
+
   migrate:
     container_name: !reset null
 

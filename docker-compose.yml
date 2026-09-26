@@ -48,6 +48,35 @@ services:
     ports:
       - "${REDIS_HOST_PORT:-6379}:6379"
 
+  # Vector search for the assistant: a derived index of conversation text and
+  # the product-help docs. Postgres stays the source of truth, so this volume is
+  # rebuildable and needs no backup.
+  #
+  # No published port: only assistant-service talks to it, over the Docker
+  # network. The API key is still set, because without one any container on
+  # that network could read every conversation's vectors.
+  qdrant:
+    image: qdrant/qdrant:v1.19.1
+    container_name: customer-management-qdrant
+    restart: unless-stopped
+    environment:
+      QDRANT__SERVICE__API_KEY: "${QDRANT_API_KEY:-}"
+      QDRANT__TELEMETRY_DISABLED: "true"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    healthcheck:
+      # The image has bash but no curl or wget. /readyz needs no API key.
+      test:
+        [
+          "CMD",
+          "bash",
+          "-c",
+          "exec 3<>/dev/tcp/127.0.0.1/6333 && printf 'GET /readyz HTTP/1.0\r\n\r\n' >&3 && grep -q ' 200 ' <&3",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
   migrate:
     build:
       context: ./migrations
@@ -350,8 +379,16 @@ services:
       SERVICE_SERVICE_URL: "http://service-service:${SERVICE_SERVICE_PORT:-4003}"
       DASHBOARD_SERVICE_URL: "http://dashboard-service:${DASHBOARD_SERVICE_PORT:-4005}"
       EMAIL_SERVICE_URL: "http://email-service:${EMAIL_SERVICE_PORT:-4006}"
+      IDENTITY_SERVICE_URL: "http://identity-service:${IDENTITY_SERVICE_PORT:-4004}"
 
       PUBLIC_APP_URL: "${PUBLIC_APP_URL:-http://localhost:3000}"
+
+      # Listed here rather than left to env_file, so this container and the
+      # qdrant container resolve the key the same way — through interpolation.
+      # Otherwise a shell export would reach Qdrant but not this service, and
+      # every request would be refused.
+      QDRANT_URL: "http://qdrant:6333"
+      QDRANT_API_KEY: "${QDRANT_API_KEY:-}"
 
       # `environment:` overrides env_file, so these blank out the seed
       # credentials this service has no use for. Without them, the one service
@@ -372,12 +409,18 @@ services:
         condition: service_healthy
       customer-service:
         condition: service_healthy
+      qdrant:
+        condition: service_healthy
 
     healthcheck:
+      # Node rather than wget: the image is Debian slim (the embedding runtime
+      # needs glibc), which does not ship wget.
       test:
         [
-          "CMD-SHELL",
-          "wget --no-verbose --tries=1 --spider http://localhost:${ASSISTANT_SERVICE_PORT:-4007}/health || exit 1",
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://localhost:' + (process.env.PORT || 4007) + '/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))",
         ]
       interval: 10s
       timeout: 5s
@@ -436,3 +479,4 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  qdrant_data:
