@@ -15,7 +15,12 @@ assembles the actual application from **Git submodules**:
 - `frontend` — React/Vite SPA (`customer_mgmt_frontend`)
 - `migrations` — the schema migration runner and bootstrap seed for the shared database
 
-Each submodule is checked out on `main` at a pinned commit. When editing service code, `cd` into
+**`main` is frozen** (since 2026-10-01): it holds the last release, and all work happens on
+`develop`, in the parent and in every submodule alike. Local `pre-commit`/`pre-push` hooks in each
+repo refuse commits on `main` and pushes to it (`ALLOW_MAIN=1` overrides once — only when the
+user asks to release or unfreeze). Hooks are not versioned, so a fresh clone does not have them.
+
+Each submodule is checked out on `develop` at a pinned commit. When editing service code, `cd` into
 the submodule — commits there belong to that service's own repo, not the parent. If you change a
 submodule and want the parent repo to track the new commit, that's a separate `git add <submodule>`
 + commit in the parent after the submodule itself is committed/pushed.
