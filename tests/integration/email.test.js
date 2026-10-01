@@ -232,3 +232,95 @@ test("a reply to an email lands on the lead it was sent to", async () => {
 
   assert.ok(inbound);
 });
+
+describe("choosing the account an automation sends from", () => {
+  let automation;
+  let secondAccountId;
+
+  before(async () => {
+    const { body } = await api("GET", "/emails/automations", { token: admin });
+    automation = body.automations.find((item) => item.trigger_event === "customer.created");
+
+    const second = await api("POST", "/emails/accounts", {
+      token: admin,
+      body: {
+        name: "Second mailbox",
+        email_address: "second@test.example",
+        provider: "smtp",
+        smtp_host: "mailpit",
+        smtp_port: 1025,
+        smtp_secure: false,
+        smtp_username: "second@test.example",
+        smtp_password: "any",
+        imap_host: "greenmail",
+        imap_port: 3143,
+        imap_secure: false,
+        imap_username: "second@test.example",
+        imap_password: "any",
+        imap_mailbox: "INBOX",
+      },
+    });
+    assert.ok([200, 201].includes(second.status), JSON.stringify(second.body));
+    secondAccountId = second.body.id ?? second.body.account?.id;
+  });
+
+  // Put everything back: the other email tests rely on a single default account.
+  after(async () => {
+    await api("POST", `/emails/automations/${automation.id}/deactivate`, { token: admin });
+    await api("PUT", `/emails/automations/${automation.id}`, {
+      token: admin,
+      body: { email_account_id: null, is_active: false },
+    });
+    await api("DELETE", `/emails/accounts/${secondAccountId}`, { token: admin });
+  });
+
+  test("the list offers the organization's active accounts", async () => {
+    const { body } = await api("GET", "/emails/automations", { token: admin });
+    const addresses = body.accounts.map((account) => account.email_address);
+
+    assert.ok(addresses.includes("sender@test.example"));
+    assert.ok(addresses.includes("second@test.example"));
+    assert.ok(!("smtp_password" in body.accounts[0]), "only name and address");
+  });
+
+  test("with two mailboxes, an automation on the default cannot be switched on", async () => {
+    const { status, body } = await api("POST", `/emails/automations/${automation.id}/activate`, { token: admin });
+
+    assert.equal(status, 400);
+    assert.match(body.error, /choose which one/i);
+  });
+
+  test("an account from outside the organization is refused", async () => {
+    const { status } = await api("PUT", `/emails/automations/${automation.id}`, {
+      token: admin,
+      body: { email_account_id: 999999 },
+    });
+
+    assert.equal(status, 400);
+  });
+
+  test("with an account chosen, it switches on and sends from that account", async () => {
+    const saved = await api("PUT", `/emails/automations/${automation.id}`, {
+      token: admin,
+      body: { email_account_id: secondAccountId, is_active: true },
+    });
+    assert.equal(saved.status, 200, JSON.stringify(saved.body));
+
+    const listed = (await api("GET", "/emails/automations", { token: admin })).body.automations.find(
+      (item) => item.id === automation.id,
+    );
+    assert.equal(listed.email_account_address, "second@test.example");
+
+    const name = unique("Chosen");
+    const email = `${name.toLowerCase()}@test.example`;
+    const customer = await api("POST", "/customers", { token: admin, body: { name, email } });
+    assert.equal(customer.status, 201, JSON.stringify(customer.body));
+
+    const [message] = await waitFor(async () => {
+      const found = await mailTo(email);
+      return found.length ? found : null;
+    }, { what: "email from the chosen account" });
+
+    assert.equal(message.From.Address, "second@test.example");
+  });
+});

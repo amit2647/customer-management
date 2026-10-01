@@ -311,9 +311,12 @@ Qdrant is a **derived index; Postgres is the source of truth**. Two collections:
 
 ### Email
 
-- Automations send through the organization's **default** account, which only resolves when
-  exactly one account is active. With two active accounts every automation fails ("Multiple active
-  email accounts"); the automation form has no account picker yet.
+- An automation sends from its chosen account (`email_account_id`, the form's "Send from"), or
+  the organization default, which only resolves while exactly one account is active. The server
+  enforces this when an automation is saved switched on or activated: a chosen account must be an
+  active one in the caller's organization, and "default" is refused once two are active. The
+  automation list response carries `accounts` (id, name, address only) so automation editors can
+  pick one without `system.integrations`.
 - `emailReceiver.js` reconciles IMAP receivers with active accounts every `EMAIL_RECEIVER_SYNC_MS`
   (default 60 s): new accounts start, dropped connections reconnect, deactivated ones stop. It
   used to start receivers only at boot and never reconnect.

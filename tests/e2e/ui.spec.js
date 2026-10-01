@@ -202,3 +202,16 @@ test.describe("on a phone-sized screen", () => {
     await shot(page, "mobile-panel");
   });
 });
+
+test("an automation's sending account is chosen on its form", async ({ page }) => {
+  await prepare(page);
+  await signIn(page);
+  await page.goto("/settings/email-automations/new");
+
+  const picker = page.getByLabel("Send from");
+  await expect(picker).toBeVisible();
+
+  // The account(s) connected in the test stack are offered by name and address.
+  await expect(picker.locator("option", { hasText: "sender@test.example" })).toHaveCount(1);
+  await shot(page, "automation-send-from");
+});
