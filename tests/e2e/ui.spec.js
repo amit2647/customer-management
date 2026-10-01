@@ -203,7 +203,38 @@ test.describe("on a phone-sized screen", () => {
   });
 });
 
-test("an automation's sending account is chosen on its form", async ({ page }) => {
+test("an automation's sending account is chosen on its form", async ({ page, request }) => {
+  const login = await request.post(`${API}/auth/login`, { data: ADMIN });
+  const { token } = await login.json();
+  const headers = { Authorization: `Bearer ${token}` };
+
+  // A fresh stack has no email accounts. Connect the same test mailbox the
+  // integration suite uses, unless an earlier run on this stack already did —
+  // a second active account would leave the organization with no default.
+  const existing = await (await request.get(`${API}/emails/accounts`, { headers })).json();
+  if (!(existing.accounts || []).some((account) => account.email_address === "sender@test.example")) {
+    const created = await request.post(`${API}/emails/accounts`, {
+      headers,
+      data: {
+        name: "Test mailbox",
+        email_address: "sender@test.example",
+        provider: "smtp",
+        smtp_host: "mailpit",
+        smtp_port: 1025,
+        smtp_secure: false,
+        smtp_username: "sender@test.example",
+        smtp_password: "any",
+        imap_host: "greenmail",
+        imap_port: 3143,
+        imap_secure: false,
+        imap_username: "sender@test.example",
+        imap_password: "any",
+        imap_mailbox: "INBOX",
+      },
+    });
+    expect([200, 201]).toContain(created.status());
+  }
+
   await prepare(page);
   await signIn(page);
   await page.goto("/settings/email-automations/new");
@@ -211,7 +242,7 @@ test("an automation's sending account is chosen on its form", async ({ page }) =
   const picker = page.getByLabel("Send from");
   await expect(picker).toBeVisible();
 
-  // The account(s) connected in the test stack are offered by name and address.
+  // The connected account is offered by name and address.
   await expect(picker.locator("option", { hasText: "sender@test.example" })).toHaveCount(1);
   await shot(page, "automation-send-from");
 });
