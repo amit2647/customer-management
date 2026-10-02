@@ -18,6 +18,9 @@ services:
   qdrant:
     container_name: !reset null
 
+  seaweedfs:
+    container_name: !reset null
+
   migrate:
     container_name: !reset null
 
@@ -42,6 +45,30 @@ services:
     ports: !reset []
 
   email-service:
+    container_name: !reset null
+    ports: !reset []
+
+  assistant-service:
+    container_name: !reset null
+    ports: !reset []
+
+  bundle-service:
+    container_name: !reset null
+    ports: !reset []
+
+  engagement-service:
+    container_name: !reset null
+    ports: !reset []
+
+  obligation-service:
+    container_name: !reset null
+    ports: !reset []
+
+  document-service:
+    container_name: !reset null
+    ports: !reset []
+
+  vault-service:
     container_name: !reset null
     ports: !reset []
 

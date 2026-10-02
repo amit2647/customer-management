@@ -4,7 +4,12 @@ MVP demonstrating a **Service-Oriented Architecture (SOA)** for customer and lea
 
 The platform demonstrates how an **API Gateway** can provide a stable frontend-facing API while independent backend services manage separate business capabilities.
 
-The project is organized as a **multi-repository architecture**. Each service is maintained as an independent Git repository, while the `customer-management` repository acts as the parent repository and uses **Git submodules** to assemble the complete application from ten of them.
+The project is organized as a **multi-repository architecture**. Each service is maintained as an independent Git repository, while the `customer-management` repository acts as the parent repository and uses **Git submodules** to assemble the complete application from sixteen of them.
+
+> **In progress on `develop`:** profession bundles — the CRM as a shared core plus an
+> installable profession bundle, CA practice first. Milestone M0 (foundations) adds the
+> `bundle-sdk` library and five capability services; see **Profession Bundles** below.
+> `main` stays frozen at the last release until the bundles work ships as one release.
 
 ---
 
@@ -651,6 +656,35 @@ assistant-service
 
 ---
 
+## Profession Bundles
+
+*In progress on `develop` (milestones M0–M8); shipped as one release.*
+
+A **bundle** packages everything one profession needs — client fields, the service catalog,
+deadline rules, document templates, credential portals, role templates, email reminders,
+dashboard cards and help docs — as **versioned data, never code**. An organization installs
+one bundle; the core and the capability services stay profession-neutral. CA practice is the
+first bundle.
+
+| Piece | Role |
+|---|---|
+| `bundle-sdk` | The contract (manifest JSON Schema), `bundle-lint`, and the engines every service shares: conditions, due dates, document templates |
+| `bundle-service` (4008) | Registry built into its image (tenants cannot upload bundles) and the step-by-step, resumable installer |
+| `engagement-service` (4009) | Engagements per client and period, engaged services, fees, payments |
+| `obligation-service` (4010) | Deadline rules, generated deadlines, extensions, reminders |
+| `document-service` (4011) | Versioned templates and generated documents |
+| `vault-service` (4012) | Encrypted portal credentials (reveal is audited) and client files in SeaweedFS |
+
+An organization without a bundle sees exactly today's product. Milestone M0 provides the
+foundations only: the SDK, migrations 013–014, the five services answering `/health`, Kong
+routes and SeaweedFS.
+
+```bash
+cd bundle-sdk && npx bundle-lint test/fixtures/valid-bundle
+```
+
+---
+
 ## Migrations
 
 The `migrations` repository owns the database schema. It is not a long-running
@@ -1171,6 +1205,13 @@ is published to your machine, for debugging only.
 | `DASHBOARD_SERVICE_PORT` / `_HOST_PORT`            | `4005`  |
 | `EMAIL_SERVICE_PORT` / `_HOST_PORT`                | `4006`  |
 | `ASSISTANT_SERVICE_PORT` / `_HOST_PORT`            | `4007`  |
+| `BUNDLE_SERVICE_PORT` / `_HOST_PORT`               | `4008`  |
+| `ENGAGEMENT_SERVICE_PORT` / `_HOST_PORT`           | `4009`  |
+| `OBLIGATION_SERVICE_PORT` / `_HOST_PORT`           | `4010`  |
+| `DOCUMENT_SERVICE_PORT` / `_HOST_PORT`             | `4011`  |
+| `VAULT_SERVICE_PORT` / `_HOST_PORT`                | `4012`  |
+| `S3_ACCESS_KEY` / `S3_SECRET_KEY` / `S3_BUCKET`     | development defaults; set your own |
+| `VAULT_MASTER_KEY`                                 | empty; generate and back up |
 | `KONG_HOST_PORT`                                   | `8080`  |
 | `FRONTEND_HOST_PORT`                               | `3000`  |
 | `VITE_API_BASE_URL`                                | follows `KONG_HOST_PORT` |
@@ -1282,10 +1323,16 @@ The Docker Compose environment contains the following major components:
 | Dashboard Service |          4005 | Dashboard aggregation              |
 | Email Service     |          4006 | Email communication                |
 | Assistant Service |          4007 | AI assistant and MCP server        |
+| Bundle Service    |          4008 | Profession bundle registry and installer |
+| Engagement Service |         4009 | Engagements, fees and payments     |
+| Obligation Service |         4010 | Compliance deadlines and reminders |
+| Document Service  |          4011 | Document templates and generated documents |
+| Vault Service     |          4012 | Encrypted portal credentials and client files |
 | migrate           |    — one-shot | Applies the schema, then exits     |
 | PostgreSQL        |  — not published | Database (internal network only) |
 | Redis             |          6379 | Dashboard caching                  |
 | Qdrant            |  — not published | Assistant vector index (internal network only) |
+| SeaweedFS         |  — not published | S3 store for client files (vault-service only) |
 
 The backend ports are published for debugging only. The frontend and all
 service-to-service calls go through the gateway or internal Docker DNS
@@ -1410,6 +1457,16 @@ customer-management/
 │   └── ...
 │
 ├── assistant-service/   (AI assistant + MCP)
+│   └── ...
+│
+├── bundle-sdk/          (bundle contract, bundle-lint, shared engines)
+│   └── ...
+│
+├── bundle-service/      (bundle registry + installer)
+├── engagement-service/
+├── obligation-service/
+├── document-service/
+├── vault-service/
 │   └── ...
 │
 └── frontend/            (customer_mgmt_frontend)

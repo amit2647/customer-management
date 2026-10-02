@@ -36,3 +36,27 @@
 [submodule "assistant-service"]
     path = assistant-service
     url = https://github.com/amit2647/assistant-service.git
+[submodule "bundle-sdk"]
+	path = bundle-sdk
+	url = https://github.com/amit2647/bundle-sdk.git
+	branch = develop
+[submodule "bundle-service"]
+	path = bundle-service
+	url = https://github.com/amit2647/bundle-service.git
+	branch = develop
+[submodule "engagement-service"]
+	path = engagement-service
+	url = https://github.com/amit2647/engagement-service.git
+	branch = develop
+[submodule "obligation-service"]
+	path = obligation-service
+	url = https://github.com/amit2647/obligation-service.git
+	branch = develop
+[submodule "document-service"]
+	path = document-service
+	url = https://github.com/amit2647/document-service.git
+	branch = develop
+[submodule "vault-service"]
+	path = vault-service
+	url = https://github.com/amit2647/vault-service.git
+	branch = develop

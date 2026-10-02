@@ -28,6 +28,12 @@ jobs:
           - identity-service
           - assistant-service
           - frontend
+          - bundle-sdk
+          - bundle-service
+          - engagement-service
+          - obligation-service
+          - document-service
+          - vault-service
     steps:
       - uses: actions/checkout@v4
         with:

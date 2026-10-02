@@ -14,6 +14,11 @@ assembles the actual application from **Git submodules**:
 - `kong` — Kong's declarative config repo (`api_gateway`)
 - `frontend` — React/Vite SPA (`customer_mgmt_frontend`)
 - `migrations` — the schema migration runner and bootstrap seed for the shared database
+- `bundle-service`, `engagement-service`, `obligation-service`, `document-service`,
+  `vault-service` — the profession-bundle capability services (same layout as the core ones;
+  `/health` only until their milestone)
+- `bundle-sdk` — the bundle contract and the engines shared by those services (a library,
+  not a service)
 
 **`main` is frozen** (since 2026-10-01): it holds the last release, and all work happens on
 `develop`, in the parent and in every submodule alike. Local `pre-commit`/`pre-push` hooks in each
@@ -49,7 +54,8 @@ key's real source ambiguous. Two consequences: never add `OPENROUTER_*` under th
 `environment:` (entries there override `env_file` and reinstate shell precedence), and because
 `env_file` loads the whole file, the `BOOTSTRAP_*` values are explicitly blanked for that one
 container so the service that talks to an external model is not also holding the seed admin
-password.
+password. `VAULT_MASTER_KEY`, `S3_ACCESS_KEY` and `S3_SECRET_KEY` are blanked there for the same
+reason; only vault-service may hold them. Any new secret in `.env` needs the same blanking.
 
 Note the asymmetry: the interpolated variables *are* still shell-overridable, which is normal and
 useful for CI. Only `OPENROUTER_*` is shell-proof.
@@ -72,7 +78,11 @@ docker compose up migrate     # re-run migrations alone (idempotent)
 - **Qdrant publishes nothing either** and requires `QDRANT_API_KEY` (a self-generated shared
   secret in `.env`, not a provider key). Reach it from the Docker network, e.g.
   `docker run --rm --network customer-management_default curlimages/curl -H "api-key: …" http://qdrant:6333/collections`.
-- Each backend service also exposes its own port directly (4001–4007) for debugging, but the
+- **SeaweedFS** (the S3 store for client files) publishes nothing and only vault-service holds
+  its keys (`S3_ACCESS_KEY`/`S3_SECRET_KEY`). Its keys always have a value — with none it
+  would serve the store anonymously — so compose falls back to development defaults, like
+  `JWT_SECRET`. It replaced MinIO, whose community edition was discontinued in 2026.
+- Each backend service also exposes its own port directly (4001–4012) for debugging, but the
   frontend and inter-service calls always go through the gateway or internal Docker DNS
   (`http://<service-name>:<port>`), never `localhost`, inside containers.
 - Individual services can be run outside Docker with `npm start` (or `npm run dev` for
@@ -140,6 +150,11 @@ Kong routes by path prefix (`kong/kong.yml`), stripping the prefix before forwar
 | `/api/emails`     | email-service        | 4006 |
 | `/api/assistant`  | assistant-service    | 4007 |
 | `/api/mcp`        | assistant-service    | 4007 |
+| `/api/bundles`     | bundle-service       | 4008 |
+| `/api/engagements` | engagement-service   | 4009 |
+| `/api/obligations` | obligation-service   | 4010 |
+| `/api/documents`   | document-service     | 4011 |
+| `/api/vault`       | vault-service        | 4012 |
 
 identity-service serves more than `/api/auth`; each of these is a separate Kong entry pointing
 at its own upstream path: `/api/users`, `/api/roles`, `/api/permissions`,
@@ -313,6 +328,36 @@ Qdrant is a **derived index; Postgres is the source of truth**. Two collections:
   for a tool that filters by permission itself.
 - `QDRANT_API_KEY` is passed to assistant-service under `environment:` on purpose, so it resolves
   the same way as in the `qdrant` container. Do not leave it to `env_file`.
+
+### Profession bundles (in progress on `develop`)
+
+The next release turns the CRM into a shared core plus an installable profession **bundle**
+(CA practice first). Milestones M0–M8 land on `develop`; `main` stays frozen until the single
+release at the end. Rules already decided — keep to them:
+
+- **A bundle is versioned data, never code**: a repo of YAML/JSON/Markdown (`bundle.yaml` plus
+  schemas, catalog, deadline rules, document templates, portals, roles, email, help). Its
+  contract and every engine that reads it live in `bundle-sdk`: the manifest JSON Schema,
+  `bundle-lint`, the condition language (a JSONLogic subset plus `engaged`/`filled`), the
+  due-date calculator and the locked-down Handlebars. Services must use these rather than
+  re-implement them, so lint and production cannot disagree.
+- **One bundle per organization** (`organization_bundles UNIQUE (organization_id)`).
+  Profession fields are `attributes` JSONB, validated against the bundle's schema and stamped
+  with `attributes_version`.
+- **An organization without a bundle must see exactly today's product.** Capability routes
+  answer "not enabled" for it, and the existing suites are the proof.
+- **Clients are archived, not deleted**; a separate admin-only purge cascades. Client-owned
+  tables FK to `customers ON DELETE CASCADE` (unlike the older unconstrained cross-service
+  ids). Audit rows (`audit_events`, `credential_reveals`) keep plain ids so they outlive
+  a purge.
+- **Upgrades keep a firm's edits**: bundle-installed rows carry `source_checksum`; a row
+  whose content no longer hashes to it is kept and flagged `update_available_version`, never
+  overwritten. Items a bundle drops are `retired_at`, never deleted.
+- Due dates are `DATE`s computed in `organizations.time_zone`, never local-time `Date`s.
+  Bundle role templates can never grant `system.*` or `bundles.manage`, and bundle
+  permissions are namespaced (`ca.*`).
+- The capability permissions are seeded by migration 014 and mirrored in
+  `bundle-sdk/src/permissions.js`; change both together.
 
 ### Email
 

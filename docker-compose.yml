@@ -77,6 +77,30 @@ services:
       timeout: 3s
       retries: 20
 
+  # S3-compatible object store for client files (vault-service only).
+  # SeaweedFS, because MinIO's community edition was discontinued in 2026.
+  # "mini" runs master, volume, filer and S3 in one container and creates the
+  # bucket on start. No host port: only vault-service talks to it.
+  #
+  # The keys always have a value. With none, SeaweedFS would serve the store
+  # anonymously; the defaults are development-only, like JWT_SECRET's.
+  seaweedfs:
+    image: chrislusf/seaweedfs:4.48
+    container_name: customer-management-seaweedfs
+    restart: unless-stopped
+    command: ["mini"]
+    environment:
+      AWS_ACCESS_KEY_ID: "${S3_ACCESS_KEY:-omnicore-dev}"
+      AWS_SECRET_ACCESS_KEY: "${S3_SECRET_KEY:-omnicore-development-s3-secret-change-this}"
+      S3_BUCKET: "${S3_BUCKET:-client-files}"
+    volumes:
+      - seaweedfs_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8333/healthz >/dev/null || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
   migrate:
     build:
       context: ./migrations
@@ -397,6 +421,12 @@ services:
       BOOTSTRAP_ADMIN_PASSWORD: ""
       BOOTSTRAP_ADMIN_EMAIL: ""
       BOOTSTRAP_ADMIN_NAME: ""
+
+      # Likewise the vault's master key and the object store's keys: only
+      # vault-service may hold them, and never the service that talks to a model.
+      VAULT_MASTER_KEY: ""
+      S3_ACCESS_KEY: ""
+      S3_SECRET_KEY: ""
       BOOTSTRAP_ORG_NAME: ""
       BOOTSTRAP_ORG_SLUG: ""
 
@@ -427,6 +457,180 @@ services:
       retries: 10
       start_period: 10s
 
+  # ---------------------------------------------------------------------
+  # Profession-bundle capability services (milestone M0: /health only).
+  # Ports 4008-4012 are pinned in kong/kong.yml, like the core services'.
+  # ---------------------------------------------------------------------
+
+  bundle-service:
+    build:
+      context: ./bundle-service
+    container_name: customer-management-bundle-service
+    ports:
+      - "${BUNDLE_SERVICE_HOST_PORT:-4008}:${BUNDLE_SERVICE_PORT:-4008}"
+    environment:
+      PORT: "${BUNDLE_SERVICE_PORT:-4008}"
+      DB_HOST: "${DB_HOST:-postgres}"
+      DB_PORT: "${DB_PORT:-5432}"
+      DB_NAME: "${DB_NAME:-customer_management}"
+      DB_USER: "${DB_USER:-app_user}"
+      DB_PASSWORD: "${DB_PASSWORD:-app_password}"
+      JWT_SECRET: "${JWT_SECRET:-omnicore-development-secret-change-this}"
+      JWT_ISSUER: "${JWT_ISSUER:-omnicore-identity-service}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget --no-verbose --tries=1 --spider http://localhost:${BUNDLE_SERVICE_PORT:-4008}/health || exit 1",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
+  engagement-service:
+    build:
+      context: ./engagement-service
+    container_name: customer-management-engagement-service
+    ports:
+      - "${ENGAGEMENT_SERVICE_HOST_PORT:-4009}:${ENGAGEMENT_SERVICE_PORT:-4009}"
+    environment:
+      PORT: "${ENGAGEMENT_SERVICE_PORT:-4009}"
+      DB_HOST: "${DB_HOST:-postgres}"
+      DB_PORT: "${DB_PORT:-5432}"
+      DB_NAME: "${DB_NAME:-customer_management}"
+      DB_USER: "${DB_USER:-app_user}"
+      DB_PASSWORD: "${DB_PASSWORD:-app_password}"
+      JWT_SECRET: "${JWT_SECRET:-omnicore-development-secret-change-this}"
+      JWT_ISSUER: "${JWT_ISSUER:-omnicore-identity-service}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget --no-verbose --tries=1 --spider http://localhost:${ENGAGEMENT_SERVICE_PORT:-4009}/health || exit 1",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
+  obligation-service:
+    build:
+      context: ./obligation-service
+    container_name: customer-management-obligation-service
+    ports:
+      - "${OBLIGATION_SERVICE_HOST_PORT:-4010}:${OBLIGATION_SERVICE_PORT:-4010}"
+    environment:
+      PORT: "${OBLIGATION_SERVICE_PORT:-4010}"
+      DB_HOST: "${DB_HOST:-postgres}"
+      DB_PORT: "${DB_PORT:-5432}"
+      DB_NAME: "${DB_NAME:-customer_management}"
+      DB_USER: "${DB_USER:-app_user}"
+      DB_PASSWORD: "${DB_PASSWORD:-app_password}"
+      JWT_SECRET: "${JWT_SECRET:-omnicore-development-secret-change-this}"
+      JWT_ISSUER: "${JWT_ISSUER:-omnicore-identity-service}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget --no-verbose --tries=1 --spider http://localhost:${OBLIGATION_SERVICE_PORT:-4010}/health || exit 1",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
+  document-service:
+    build:
+      context: ./document-service
+    container_name: customer-management-document-service
+    ports:
+      - "${DOCUMENT_SERVICE_HOST_PORT:-4011}:${DOCUMENT_SERVICE_PORT:-4011}"
+    environment:
+      PORT: "${DOCUMENT_SERVICE_PORT:-4011}"
+      DB_HOST: "${DB_HOST:-postgres}"
+      DB_PORT: "${DB_PORT:-5432}"
+      DB_NAME: "${DB_NAME:-customer_management}"
+      DB_USER: "${DB_USER:-app_user}"
+      DB_PASSWORD: "${DB_PASSWORD:-app_password}"
+      JWT_SECRET: "${JWT_SECRET:-omnicore-development-secret-change-this}"
+      JWT_ISSUER: "${JWT_ISSUER:-omnicore-identity-service}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget --no-verbose --tries=1 --spider http://localhost:${DOCUMENT_SERVICE_PORT:-4011}/health || exit 1",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
+  vault-service:
+    build:
+      context: ./vault-service
+    container_name: customer-management-vault-service
+    ports:
+      - "${VAULT_SERVICE_HOST_PORT:-4012}:${VAULT_SERVICE_PORT:-4012}"
+    environment:
+      PORT: "${VAULT_SERVICE_PORT:-4012}"
+      DB_HOST: "${DB_HOST:-postgres}"
+      DB_PORT: "${DB_PORT:-5432}"
+      DB_NAME: "${DB_NAME:-customer_management}"
+      DB_USER: "${DB_USER:-app_user}"
+      DB_PASSWORD: "${DB_PASSWORD:-app_password}"
+      JWT_SECRET: "${JWT_SECRET:-omnicore-development-secret-change-this}"
+      JWT_ISSUER: "${JWT_ISSUER:-omnicore-identity-service}"
+      # Only this service holds the vault key and the object store's keys.
+      # assistant-service blanks all three (it loads .env through env_file).
+      VAULT_MASTER_KEY: "${VAULT_MASTER_KEY:-}"
+      S3_ENDPOINT: "http://seaweedfs:8333"
+      S3_BUCKET: "${S3_BUCKET:-client-files}"
+      S3_ACCESS_KEY: "${S3_ACCESS_KEY:-omnicore-dev}"
+      S3_SECRET_KEY: "${S3_SECRET_KEY:-omnicore-development-s3-secret-change-this}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      seaweedfs:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget --no-verbose --tries=1 --spider http://localhost:${VAULT_SERVICE_PORT:-4012}/health || exit 1",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
   kong:
     image: kong:3.9
     container_name: customer-management-kong
@@ -456,6 +660,16 @@ services:
         condition: service_started
       assistant-service:
         condition: service_started
+      bundle-service:
+        condition: service_started
+      engagement-service:
+        condition: service_started
+      obligation-service:
+        condition: service_started
+      document-service:
+        condition: service_started
+      vault-service:
+        condition: service_started
 
   frontend:
     build:
@@ -480,3 +694,4 @@ volumes:
   postgres_data:
   redis_data:
   qdrant_data:
+  seaweedfs_data:

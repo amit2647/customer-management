@@ -20,6 +20,9 @@ services:
   qdrant:
     container_name: !reset null
 
+  seaweedfs:
+    container_name: !reset null
+
   # Known credentials for the tests to sign in with, whatever .env says.
   migrate:
     container_name: !reset null
@@ -71,6 +74,27 @@ services:
     depends_on:
       fake-openrouter:
         condition: service_healthy
+
+  # The capability services (milestone M0).
+  bundle-service:
+    container_name: !reset null
+    ports: !reset []
+
+  engagement-service:
+    container_name: !reset null
+    ports: !reset []
+
+  obligation-service:
+    container_name: !reset null
+    ports: !reset []
+
+  document-service:
+    container_name: !reset null
+    ports: !reset []
+
+  vault-service:
+    container_name: !reset null
+    ports: !reset []
 
   kong:
     container_name: !reset null
