@@ -1,0 +1,228 @@
+const { describe, test, before } = require("node:test");
+const assert = require("node:assert/strict");
+
+const { api, adminToken, createUser, login, sql, unique } = require("./lib");
+
+/*
+ * Milestone M1: installing the CA Practice bundle, end to end through Kong.
+ *
+ * Installs go into organizations of their own, so the shared test
+ * organization never has a bundle — every other suite keeps proving that an
+ * organization without one sees exactly the product it saw before.
+ */
+
+let admin;
+
+// A new organization with its own administrator, signed in to it.
+async function organizationWithAdmin(label) {
+  const created = await createUser(admin, "SUPER_ADMIN");
+  const orgId = sql(
+    `INSERT INTO organizations (name, slug) VALUES ('${label}', '${unique("org").toLowerCase()}') RETURNING id`,
+  ).split("\n")[0];
+
+  sql(`UPDATE organization_users SET organization_id = ${orgId} WHERE user_id = ${created.id}`);
+
+  // The creation token carried the first organization; sign in again.
+  return { orgId: Number(orgId), token: await login(created.email, created.password) };
+}
+
+const count = (query) => Number(sql(query));
+
+before(async () => {
+  admin = await adminToken();
+});
+
+describe("an organization without a bundle", () => {
+  test("has none installed", async () => {
+    const { status, body } = await api("GET", "/bundles/installed", { token: admin });
+
+    assert.equal(status, 200);
+    assert.deepEqual(body, { bundle: null });
+  });
+
+  test("is not offered the capability permissions in its role editor", async () => {
+    const { body } = await api("GET", "/permissions", { token: admin });
+    const codes = body.map((permission) => permission.code);
+
+    assert.ok(codes.includes("leads.read"));
+    assert.equal(codes.includes("profiles.read"), false);
+    assert.equal(codes.includes("bundles.manage"), false);
+    assert.equal(codes.some((code) => code.startsWith("ca.")), false);
+  });
+
+  test("cannot use the deadline events in an automation", async () => {
+    const { status } = await api("POST", "/emails/automations", {
+      token: admin,
+      body: { name: unique("Reminder"), trigger_event: "obligation.due_soon", template_id: 1 },
+    });
+
+    assert.equal(status, 400);
+  });
+});
+
+describe("the bundle registry", () => {
+  test("offers CA Practice 0.1.0 to an administrator", async () => {
+    const { status, body } = await api("GET", "/bundles", { token: admin });
+
+    assert.equal(status, 200);
+
+    const ca = body.bundles.find((bundle) => bundle.key === "ca-practice");
+
+    assert.equal(ca.version, "0.1.0");
+    assert.equal(ca.contents.services, 12);
+    assert.deepEqual(ca.contents.roles, ["Partner", "Audit Manager", "Article Assistant", "Accounts Executive"]);
+  });
+
+  test("is closed to anyone without bundles.manage", async () => {
+    const rep = await createUser(admin, "SALES_REP");
+
+    assert.equal((await api("GET", "/bundles", { token: rep.token })).status, 403);
+    assert.equal((await api("POST", "/bundles/ca-practice/install", { token: rep.token })).status, 403);
+  });
+});
+
+describe("installing CA Practice", () => {
+  let firm;
+
+  before(async () => {
+    firm = await organizationWithAdmin("CA Firm");
+  });
+
+  test("runs every step and ends installed", async () => {
+    const { status, body } = await api("POST", "/bundles/ca-practice/install", { token: firm.token });
+
+    assert.equal(status, 200, JSON.stringify(body));
+    assert.equal(body.bundle.status, "installed");
+    assert.deepEqual(
+      body.bundle.steps.map((step) => [step.step, step.status]),
+      [["permissions", "done"], ["roles", "done"], ["catalog", "done"], ["email", "done"]],
+    );
+  });
+
+  test("the organization now reads its bundle's vocabulary and fields", async () => {
+    const { body } = await api("GET", "/bundles/installed", { token: firm.token });
+
+    assert.equal(body.bundle.key, "ca-practice");
+    assert.equal(body.bundle.vocabulary.period.one, "Financial year");
+    assert.deepEqual(body.bundle.pipeline.map((column) => column.label), ["Leads", "In Discussion", "Quote Sent"]);
+    assert.equal(body.bundle.profiles.client.schema.properties.constitution.enum.length, 7);
+    assert.equal(body.catalog, undefined, "only the public sections are shared");
+  });
+
+  test("its catalog holds the 12 services, keyed, and the packages", async () => {
+    const { body } = await api("GET", "/services", { token: firm.token });
+    const names = body.map((service) => service.name);
+
+    for (const name of ["Statutory Audit", "Tax Audit", "GST Returns", "Income Tax Return", "PTRC / PTEC"]) {
+      assert.ok(names.includes(name), `missing ${name}`);
+    }
+
+    assert.equal(count(`SELECT count(*) FROM services WHERE organization_id = ${firm.orgId} AND bundle_key = 'ca-practice'`), 12);
+    assert.equal(
+      count(`SELECT count(*) FROM service_package_items i JOIN service_packages p ON p.id = i.package_id WHERE p.organization_id = ${firm.orgId} AND p.key = 'company_annual'`),
+      4,
+    );
+  });
+
+  test("its role templates became the firm's roles — an Article Assistant sees no passwords", async () => {
+    const { body } = await api("GET", "/roles", { token: firm.token });
+    const assistant = body.find((role) => role.code === "CA_ARTICLE_ASSISTANT");
+
+    assert.ok(assistant, "CA_ARTICLE_ASSISTANT missing");
+
+    const detail = await api("GET", `/roles/${assistant.id}`, { token: firm.token });
+    const codes = detail.body.permissions.map((permission) => permission.code);
+
+    assert.ok(codes.includes("obligations.update"));
+    assert.equal(codes.includes("vault.reveal"), false);
+    assert.equal(codes.some((code) => code.startsWith("system.")), false);
+  });
+
+  test("its role editor now offers the capability and ca.* permissions", async () => {
+    const { body } = await api("GET", "/permissions", { token: firm.token });
+    const codes = body.map((permission) => permission.code);
+
+    assert.ok(codes.includes("profiles.read"));
+    assert.ok(codes.includes("ca.udin.manage"));
+  });
+
+  test("its reminder emails arrived switched off", async () => {
+    const { body } = await api("GET", "/emails/automations", { token: firm.token });
+    const reminders = body.automations.filter((automation) => automation.trigger_event.startsWith("obligation."));
+
+    assert.equal(reminders.length, 2);
+    assert.ok(reminders.every((automation) => automation.is_active === false));
+  });
+
+  test("installing again changes nothing", async () => {
+    const before = sql(`SELECT
+      (SELECT count(*) FROM services WHERE organization_id = ${firm.orgId}) || ',' ||
+      (SELECT count(*) FROM roles WHERE organization_id = ${firm.orgId}) || ',' ||
+      (SELECT count(*) FROM email_automations WHERE organization_id = ${firm.orgId})`);
+
+    const { status, body } = await api("POST", "/bundles/ca-practice/install", { token: firm.token });
+
+    assert.equal(status, 200);
+    assert.equal(body.bundle.status, "installed");
+    assert.equal(
+      sql(`SELECT
+        (SELECT count(*) FROM services WHERE organization_id = ${firm.orgId}) || ',' ||
+        (SELECT count(*) FROM roles WHERE organization_id = ${firm.orgId}) || ',' ||
+        (SELECT count(*) FROM email_automations WHERE organization_id = ${firm.orgId})`),
+      before,
+    );
+  });
+
+  test("the install is in the audit log", () => {
+    assert.equal(count(`SELECT count(*) FROM audit_events WHERE organization_id = ${firm.orgId} AND action = 'bundle.installed'`), 1);
+  });
+
+  test("the first organization is untouched", () => {
+    assert.equal(count("SELECT count(*) FROM services WHERE organization_id = 1 AND bundle_key IS NOT NULL"), 0);
+    assert.equal(count("SELECT count(*) FROM organization_bundles WHERE organization_id = 1"), 0);
+  });
+});
+
+describe("an install that fails part-way", () => {
+  let firm;
+
+  before(async () => {
+    firm = await organizationWithAdmin("CA Firm Two");
+
+    // A service already holding the name the bundle needs, under a key of its
+    // own: the catalog step cannot adopt it, so the install must stop there.
+    sql(`INSERT INTO services (organization_id, name, key) VALUES (${firm.orgId}, 'Tax Audit', 'our_tax_audit')`);
+  });
+
+  test("stops at the failing step and keeps what finished", async () => {
+    const { status, body } = await api("POST", "/bundles/ca-practice/install", { token: firm.token });
+
+    assert.equal(status, 502);
+    assert.equal(body.step, "catalog");
+    assert.match(body.error, /Install again to resume/);
+
+    const progress = await api("GET", "/bundles/installed/status", { token: firm.token });
+
+    assert.equal(progress.body.bundle.status, "failed");
+    assert.deepEqual(
+      progress.body.bundle.steps.map((step) => [step.step, step.status]),
+      [["permissions", "done"], ["roles", "done"], ["catalog", "failed"], ["email", "pending"]],
+    );
+
+    // Not installed yet, so the organization still works as before.
+    assert.deepEqual((await api("GET", "/bundles/installed", { token: firm.token })).body, { bundle: null });
+  });
+
+  test("installing again resumes at that step without repeating the finished ones", async () => {
+    sql(`UPDATE services SET name = 'Tax Audit (old)' WHERE organization_id = ${firm.orgId} AND key = 'our_tax_audit'`);
+
+    const { status, body } = await api("POST", "/bundles/ca-practice/install", { token: firm.token });
+
+    assert.equal(status, 200, JSON.stringify(body));
+    assert.equal(body.bundle.status, "installed");
+    assert.deepEqual(
+      body.bundle.steps.map((step) => [step.step, step.attempts]),
+      [["permissions", 1], ["roles", 1], ["catalog", 2], ["email", 1]],
+    );
+  });
+});

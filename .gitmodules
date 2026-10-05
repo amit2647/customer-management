@@ -60,3 +60,7 @@
 	path = vault-service
 	url = https://github.com/amit2647/vault-service.git
 	branch = develop
+[submodule "bundles/ca-practice"]
+	path = bundles/ca-practice
+	url = https://github.com/amit2647/bundle-ca-practice.git
+	branch = develop

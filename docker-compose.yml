@@ -465,6 +465,10 @@ services:
   bundle-service:
     build:
       context: ./bundle-service
+      # The bundles it offers are baked into the image from bundles/ (the
+      # registry) — a tenant can never upload one.
+      additional_contexts:
+        bundles: ./bundles
     container_name: customer-management-bundle-service
     ports:
       - "${BUNDLE_SERVICE_HOST_PORT:-4008}:${BUNDLE_SERVICE_PORT:-4008}"
@@ -477,6 +481,11 @@ services:
       DB_PASSWORD: "${DB_PASSWORD:-app_password}"
       JWT_SECRET: "${JWT_SECRET:-omnicore-development-secret-change-this}"
       JWT_ISSUER: "${JWT_ISSUER:-omnicore-identity-service}"
+      # Each install step is a call onto the service that owns that part of
+      # the bundle, made with the installing admin's own token.
+      IDENTITY_SERVICE_URL: "http://identity-service:${IDENTITY_SERVICE_PORT:-4004}"
+      SERVICE_SERVICE_URL: "http://service-service:${SERVICE_SERVICE_PORT:-4003}"
+      EMAIL_SERVICE_URL: "http://email-service:${EMAIL_SERVICE_PORT:-4006}"
     depends_on:
       postgres:
         condition: service_healthy

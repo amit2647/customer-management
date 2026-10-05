@@ -4,7 +4,7 @@ MVP demonstrating a **Service-Oriented Architecture (SOA)** for customer and lea
 
 The platform demonstrates how an **API Gateway** can provide a stable frontend-facing API while independent backend services manage separate business capabilities.
 
-The project is organized as a **multi-repository architecture**. Each service is maintained as an independent Git repository, while the `customer-management` repository acts as the parent repository and uses **Git submodules** to assemble the complete application from sixteen of them.
+The project is organized as a **multi-repository architecture**. Each service is maintained as an independent Git repository, while the `customer-management` repository acts as the parent repository and uses **Git submodules** to assemble the complete application from seventeen of them.
 
 > **In progress on `develop`:** profession bundles — the CRM as a shared core plus an
 > installable profession bundle, CA practice first. Milestone M0 (foundations) adds the
@@ -675,9 +675,13 @@ first bundle.
 | `document-service` (4011) | Versioned templates and generated documents |
 | `vault-service` (4012) | Encrypted portal credentials (reveal is audited) and client files in SeaweedFS |
 
-An organization without a bundle sees exactly today's product. Milestone M0 provides the
-foundations only: the SDK, migrations 013–014, the five services answering `/health`, Kong
-routes and SeaweedFS.
+An organization without a bundle sees exactly today's product.
+
+| Milestone | State |
+|---|---|
+| M0 Foundations | Done — the SDK, migrations 013–014, five services, Kong routes, SeaweedFS |
+| M1 Installer + CA skeleton | Done — **Settings → Profession Bundle** installs `bundles/ca-practice` (12 services, 2 packages, 4 role templates, 2 reminder emails installed off); an install that stops part-way resumes where it stopped |
+| M2–M8 | Client profiles, engagements and fees, deadlines, documents, vault and files, assistant/dashboard/import, release |
 
 ```bash
 cd bundle-sdk && npx bundle-lint test/fixtures/valid-bundle
@@ -1468,6 +1472,9 @@ customer-management/
 ├── document-service/
 ├── vault-service/
 │   └── ...
+│
+├── bundles/
+│   └── ca-practice/     (bundle-ca-practice: the CA Practice bundle)
 │
 └── frontend/            (customer_mgmt_frontend)
     └── ...

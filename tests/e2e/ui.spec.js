@@ -246,3 +246,25 @@ test("an automation's sending account is chosen on its form", async ({ page, req
   await expect(picker.locator("option", { hasText: "sender@test.example" })).toHaveCount(1);
   await shot(page, "automation-send-from");
 });
+
+// Last on purpose: it installs the CA bundle into the test organization.
+test("a profession bundle is installed from Settings", async ({ page }) => {
+  await prepare(page);
+  await signIn(page);
+  await page.goto("/settings");
+
+  await page.getByRole("button", { name: /Profession Bundle/ }).click();
+  await expect(page.getByRole("heading", { name: /CA Practice/ })).toBeVisible();
+  await expect(page.getByText("12 services and 2 packages")).toBeVisible();
+  await shot(page, "bundle-offer");
+
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "Install CA Practice" }).click();
+
+  const installed = page.getByRole("region", { name: "Installed bundle" });
+
+  await expect(installed.getByText("Installed", { exact: true })).toBeVisible({ timeout: 30000 });
+  await expect(installed.getByText("Services and packages")).toBeVisible();
+  await expect(page.getByText(/reminder emails are switched off/)).toBeVisible();
+  await shot(page, "bundle-installed");
+});

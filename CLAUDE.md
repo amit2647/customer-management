@@ -357,7 +357,38 @@ release at the end. Rules already decided — keep to them:
   Bundle role templates can never grant `system.*` or `bundles.manage`, and bundle
   permissions are namespaced (`ca.*`).
 - The capability permissions are seeded by migration 014 and mirrored in
-  `bundle-sdk/src/permissions.js`; change both together.
+  `bundle-sdk/src/permissions.js`; change both together. identity-service's
+  `getPermissions` holds a third copy: it hides them from the role editor of an organization
+  with no bundle, and never lists another bundle's namespaced permissions.
+
+#### Installing a bundle (bundle-service)
+
+- **The registry is baked into bundle-service's image** from the parent's `bundles/` directory
+  (one submodule per bundle, e.g. `bundles/ca-practice` → repo `bundle-ca-practice`), passed as
+  the build context `bundles` (`additional_contexts` in compose). At startup each is linted
+  with bundle-sdk and recorded in `bundle_versions`; a version whose content differs from its
+  recorded copy is refused — **bump the version for any change to a bundle**.
+- bundle-service depends on bundle-sdk through a GitHub tarball URL pinned to a commit
+  (`codeload.github.com/…/tar.gz/<sha>`): images have no git, so not `github:` shorthand.
+- `POST /bundles/:key/install` (needs `bundles.manage`) runs steps in order — permissions →
+  roles → catalog → email — each a `PUT /<capability path>/bundles/:key/:version` on the
+  owning service, carrying only its slice and the admin's own token. Each step is idempotent
+  and recorded in `bundle_install_steps`; a failed step stops the install (`502`, status
+  `failed`), and installing again resumes at that step without re-running finished ones. No
+  transaction spans the calls: the `organization_bundles` row is a lease (`installing` with a
+  recent `updated_at`), taken under an advisory lock, stale after two minutes.
+- Every install endpoint uses `src/services/bundleSync.js` (`decide()`: insert / unchanged /
+  update / keep) — **copied** into identity-, service- and email-service like the auth
+  middleware, with an identical test beside each copy; keep them identical. A pre-existing row
+  with the same name is adopted and treated as the firm's own, never duplicated.
+- Installed email automations are always created **off**, and an install never switches one
+  on or off. The deadline trigger events are accepted only for an organization with a bundle.
+- `GET /bundles/installed` (any member) returns only the public sections (vocabulary, profiles,
+  identifiers, people roles, pipeline) of the installed version's recorded manifest, and
+  `{ bundle: null }` until an install has finished. Settings → Profession Bundle
+  (`BundlePage.jsx`, `bundles.manage`) installs and resumes.
+- Integration tests install into organizations of their own (`bundleInstall.test.js`); the
+  shared test organization never gets a bundle, so the other suites keep proving it unchanged.
 
 ### Email
 
