@@ -681,7 +681,8 @@ An organization without a bundle sees exactly today's product.
 |---|---|
 | M0 Foundations | Done — the SDK, migrations 013–014, five services, Kong routes, SeaweedFS |
 | M1 Installer + CA skeleton | Done — **Settings → Profession Bundle** installs `bundles/ca-practice` (12 services, 2 packages, 4 role templates, 2 reminder emails installed off); an install that stops part-way resumes where it stopped |
-| M2–M8 | Client profiles, engagements and fees, deadlines, documents, vault and files, assistant/dashboard/import, release |
+| M2 Client profiles | Done — the **Clients** list, a 5-step wizard (constitution-driven identifiers, people, services, bank accounts), client detail with lock / archive / purge, the **Prospects** board with convert-to-client, and **Settings → Firm** (FRN, signing partners) |
+| M3–M8 | Engagements and fees, deadlines, documents, vault and files, assistant/dashboard/import, release |
 
 ```bash
 cd bundle-sdk && npx bundle-lint test/fixtures/valid-bundle

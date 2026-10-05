@@ -1,7 +1,7 @@
 const { describe, test, before } = require("node:test");
 const assert = require("node:assert/strict");
 
-const { api, adminToken, createUser, login, sql, unique } = require("./lib");
+const { api, adminToken, createUser, organizationWithAdmin: newOrganization, sql, unique } = require("./lib");
 
 /*
  * Milestone M1: installing the CA Practice bundle, end to end through Kong.
@@ -13,18 +13,7 @@ const { api, adminToken, createUser, login, sql, unique } = require("./lib");
 
 let admin;
 
-// A new organization with its own administrator, signed in to it.
-async function organizationWithAdmin(label) {
-  const created = await createUser(admin, "SUPER_ADMIN");
-  const orgId = sql(
-    `INSERT INTO organizations (name, slug) VALUES ('${label}', '${unique("org").toLowerCase()}') RETURNING id`,
-  ).split("\n")[0];
-
-  sql(`UPDATE organization_users SET organization_id = ${orgId} WHERE user_id = ${created.id}`);
-
-  // The creation token carried the first organization; sign in again.
-  return { orgId: Number(orgId), token: await login(created.email, created.password) };
-}
+const organizationWithAdmin = (label) => newOrganization(admin, label);
 
 const count = (query) => Number(sql(query));
 
@@ -61,14 +50,14 @@ describe("an organization without a bundle", () => {
 });
 
 describe("the bundle registry", () => {
-  test("offers CA Practice 0.1.0 to an administrator", async () => {
+  test("offers CA Practice 0.2.0 to an administrator", async () => {
     const { status, body } = await api("GET", "/bundles", { token: admin });
 
     assert.equal(status, 200);
 
     const ca = body.bundles.find((bundle) => bundle.key === "ca-practice");
 
-    assert.equal(ca.version, "0.1.0");
+    assert.equal(ca.version, "0.2.0");
     assert.equal(ca.contents.services, 12);
     assert.deepEqual(ca.contents.roles, ["Partner", "Audit Manager", "Article Assistant", "Accounts Executive"]);
   });

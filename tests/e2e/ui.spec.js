@@ -268,3 +268,127 @@ test("a profession bundle is installed from Settings", async ({ page }) => {
   await expect(page.getByText(/reminder emails are switched off/)).toBeVisible();
   await shot(page, "bundle-installed");
 });
+
+// ---------------------------------------------------------------------------
+// Milestone M2 — run after the install above, in the same organization.
+// ---------------------------------------------------------------------------
+
+const unique = (label) => `${label} ${Date.now().toString(36)}`;
+const pickOption = async (page, label, optionText) => {
+  const select = page.getByLabel(label);
+  const value = await select.locator("option", { hasText: optionText }).first().getAttribute("value");
+  await select.selectOption(value);
+};
+
+test("with a bundle, the navigation says Clients and offers the prospect board", async ({ page }) => {
+  await prepare(page);
+  await signIn(page);
+
+  await expect(page.getByRole("link", { name: "Clients" })).toHaveAttribute("href", "/clients");
+  await expect(page.getByRole("link", { name: "Prospects" })).toBeVisible();
+});
+
+test("the client wizard adds a company with its CIN, director and bank account", async ({ page }) => {
+  await prepare(page);
+  await signIn(page);
+  await page.goto("/clients/new");
+
+  const name = unique("Acme Pvt Ltd");
+
+  await page.getByLabel("Entity name").fill(name);
+  await page.getByLabel("Email").first().fill("accounts@acme.example");
+  await pickOption(page, /Constitution/, "Private Limited");
+
+  // CIN appears for a company and is required (WIZ-02/03).
+  await page.getByRole("button", { name: /Continue/ }).click();
+  await expect(page.getByText("CIN is required")).toBeVisible();
+
+  await page.getByLabel("PAN").fill(`AAACA${String(Date.now()).slice(-4)}A`);
+  await page.getByLabel(/CIN/).fill(`U72200MH2015PTC${String(Date.now()).slice(-6)}`);
+  await shot(page, "client-wizard-entity");
+  await page.getByRole("button", { name: /Continue/ }).click();
+
+  await page.getByRole("button", { name: "+ Add person" }).click();
+  await page.getByLabel("Name", { exact: true }).fill("A. Rao");
+  await page.getByLabel("Designation").fill("Managing Director");
+  await page.getByLabel(/DIN/).fill("01234567");
+  await page.getByRole("button", { name: /Continue/ }).click();
+
+  await page.getByRole("button", { name: /Statutory Audit/ }).click();
+  await shot(page, "client-wizard-services");
+  await page.getByRole("button", { name: /Continue/ }).click();
+
+  await page.getByRole("button", { name: "+ Add bank account" }).click();
+  await page.getByLabel("Bank").fill("State Bank of India");
+  await page.getByLabel("Account number").fill("123456789012");
+  await page.getByRole("button", { name: /Continue/ }).click();
+
+  await expect(page.getByText(name)).toBeVisible();
+  await page.getByRole("button", { name: "Save Client" }).click();
+
+  await expect(page.getByRole("heading", { name: new RegExp(name) })).toBeVisible();
+  await expect(page.getByText("Private Limited").first()).toBeVisible();
+  await shot(page, "client-detail");
+
+  await page.getByRole("tab", { name: "Bank accounts" }).click();
+  await expect(page.getByText("•••• 9012")).toBeVisible();
+  await expect(page.getByText("Primary")).toBeVisible();
+  await shot(page, "client-bank-accounts");
+
+  await page.getByRole("tab", { name: "People" }).click();
+  await expect(page.getByRole("cell", { name: "A. Rao" })).toBeVisible();
+
+  await page.goto("/clients");
+  await expect(page.getByRole("button", { name })).toBeVisible();
+  await expect(page.getByText("Private Limited").first()).toBeVisible();
+  await shot(page, "clients-list");
+});
+
+test("a prospect moves along the board and converts into a client", async ({ page }) => {
+  await prepare(page);
+  await signIn(page);
+  await page.goto("/prospects");
+
+  const name = unique("Iyer & Sons");
+
+  await page.getByRole("button", { name: "+ Add prospect" }).click();
+  await page.getByLabel("Name").fill(name);
+  await page.getByLabel("Quoted fee").fill("45000");
+  await page.getByLabel("Next meeting").fill("2026-10-20");
+  await page.getByRole("button", { name: "Add prospect", exact: true }).click();
+
+  const leads = page.getByRole("region", { name: "Leads" });
+  await expect(leads.getByText(name)).toBeVisible();
+
+  await page.getByRole("button", { name: `Move ${name} on` }).click();
+  await expect(page.getByRole("region", { name: "In Discussion" }).getByText(name)).toBeVisible();
+  await shot(page, "prospect-board");
+
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("region", { name: "In Discussion" }).locator("article", { hasText: name }).getByRole("button", { name: "Convert" }).click();
+
+  await expect(page.getByText("Converted from a prospect")).toBeVisible();
+  await expect(page.getByLabel("Entity name")).toHaveValue(name);
+  await shot(page, "prospect-converted-wizard");
+});
+
+test("the firm's FRN and signing partner are set in Settings", async ({ page }) => {
+  await prepare(page);
+  await signIn(page);
+  await page.goto("/settings");
+
+  await page.getByRole("button", { name: /^⌂?\s*Firm/ }).click();
+  await page.getByLabel("Legal name").fill("Rao & Co LLP");
+  await page.getByLabel(/Firm registration number/).fill("123456W");
+  await page.getByRole("button", { name: "Save firm" }).click();
+  await expect(page.getByText("Firm saved.")).toBeVisible();
+
+  await page.getByRole("button", { name: "+ Add partner" }).click();
+  await page.getByRole("form", { name: "Signing partner" }).getByLabel("Name").fill("CA A. Rao");
+  await page.getByLabel(/ICAI membership number/).fill("123456");
+  await page.getByLabel("Default signatory").check();
+  await page.getByRole("button", { name: "Save partner" }).click();
+
+  await expect(page.getByText("Default signatory", { exact: true }).first()).toBeVisible();
+  await shot(page, "firm-settings");
+});

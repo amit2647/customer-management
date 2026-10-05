@@ -387,8 +387,46 @@ release at the end. Rules already decided — keep to them:
   identifiers, people roles, pipeline) of the installed version's recorded manifest, and
   `{ bundle: null }` until an install has finished. Settings → Profession Bundle
   (`BundlePage.jsx`, `bundles.manage`) installs and resumes.
-- Integration tests install into organizations of their own (`bundleInstall.test.js`); the
-  shared test organization never gets a bundle, so the other suites keep proving it unchanged.
+- Integration tests install into organizations of their own (`lib.caFirm()`,
+  `lib.organizationWithAdmin()`); the shared test organization never gets a bundle, so the other
+  suites keep proving it unchanged. The browser suite is the exception: its *last* tests install
+  CA Practice into the test organization and then exercise the bundle screens — keep new
+  bundle browser tests after that install.
+
+#### Client profiles, prospects and the firm (M2)
+
+- Services that need the installed bundle ask bundle-service for it (`GET /bundles/installed`,
+  with the caller's token) through a copied `services/bundleContext.js` (installed bundles cached
+  60 s per organization; "no bundle" never cached), and gate their bundle routes with a copied
+  `middleware/requireBundle.js` → 404 "not enabled" for an organization without one. Copies live
+  in customer-, lead- and identity-service; keep them identical.
+- Bundle rules are evaluated with bundle-sdk everywhere, the browser included: customer-service
+  (`profiles.validate`, `identifiers.check`), lead-service, identity-service, and the frontend,
+  which imports `bundle-sdk/src/conditions` and `/identifiers` so the wizard shows and requires
+  exactly the identifiers the server will. A schema `if` must `require` the field it tests, or it
+  also matches when the field is empty — lint warns.
+- customer-service: the client wizard saves core fields, services and `profile` (attributes,
+  identifiers, people, bank accounts) in **one transaction** — `createCustomer`'s `extend` hook
+  writes the profile before COMMIT, so a refused PAN leaves no half-made client. A duplicate
+  identifier is a 409 naming the client that holds it, archived ones included (the PAN stays
+  taken while archived). Bank account numbers leave the service masked (`•••• 9012`), so an
+  existing client's accounts are only changed one by one through their own endpoints, never
+  resent with the profile. Locked clients need `profiles.lock` for any write (423); archived
+  clients are read-only (409). With a bundle, `DELETE /customers/:id` archives; purge needs
+  `customers.purge` and an archived client. All of this is new code in
+  `profileService.js`/`profileRoutes.js`; the original customer code only gained additive
+  columns, the archived filter, identifier search and the `extend` hook.
+- lead-service: `PATCH /leads/:id/prospect` moves a lead between the bundle's pipeline columns
+  (never to `Converted` by hand) and keeps quote, next meeting, notes and lead fields. Convert
+  records `converted_customer_id`; the frontend then opens the wizard on that client.
+- identity-service: `/organizations/current/profile` and `/organizations/current/professionals`
+  (one default signatory) — under `/organizations/…` so Kong needed no new route.
+- Frontend: `BundleContext` loads the installed bundle once per sign-in; the sidebar's Customers
+  entry becomes the bundle's word ("Clients") and points at `/clients`, and Prospects appears —
+  only with a bundle. Bundle fields render with react-jsonschema-form through
+  `components/bundle/SchemaForm.jsx` (rjsf 6 keeps option **indexes** as `<select>` values — pick
+  options by label in tests). Not yet possible: showing a field only for some constitutions
+  (needs conditional properties in contract v1).
 
 ### Email
 

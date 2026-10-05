@@ -128,4 +128,33 @@ function sql(query) {
   return result.stdout.trim();
 }
 
-module.exports = { api, login, adminToken, createUser, unique, uuid, modelCalls, waitFor, sql, ADMIN };
+/*
+ * A new organization with its own SUPER_ADMIN, signed in to it — for tests
+ * that must not touch the shared test organization (bundle installs). No
+ * API creates an organization, so this one SQL step does.
+ */
+async function organizationWithAdmin(admin, label) {
+  const created = await createUser(admin, "SUPER_ADMIN");
+  const orgId = sql(
+    `INSERT INTO organizations (name, slug) VALUES ('${label}', '${unique("org").toLowerCase()}') RETURNING id`,
+  ).split("\n")[0];
+
+  sql(`UPDATE organization_users SET organization_id = ${orgId} WHERE user_id = ${created.id}`);
+
+  // The creation token carried the first organization; sign in again.
+  return { orgId: Number(orgId), token: await login(created.email, created.password) };
+}
+
+// An organization with the CA Practice bundle installed.
+async function caFirm(admin, label = "CA Firm") {
+  const firm = await organizationWithAdmin(admin, label);
+  const { status, body } = await api("POST", "/bundles/ca-practice/install", { token: firm.token });
+
+  if (status !== 200) {
+    throw new Error(`installing ca-practice: ${status} ${JSON.stringify(body)}`);
+  }
+
+  return firm;
+}
+
+module.exports = { api, login, adminToken, createUser, organizationWithAdmin, caFirm, unique, uuid, modelCalls, waitFor, sql, ADMIN };

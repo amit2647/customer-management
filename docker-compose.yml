@@ -172,6 +172,8 @@ services:
       JWT_ISSUER: "${JWT_ISSUER:-omnicore-identity-service}"
       SERVICE_SERVICE_URL: "http://service-service:${SERVICE_SERVICE_PORT:-4003}"
       EMAIL_SERVICE_URL: "http://email-service:${EMAIL_SERVICE_PORT:-4006}"
+      # The installed profession bundle's schemas and rules.
+      BUNDLE_SERVICE_URL: "http://bundle-service:${BUNDLE_SERVICE_PORT:-4008}"
     depends_on:
       postgres:
         condition: service_healthy
@@ -209,6 +211,8 @@ services:
       CUSTOMER_SERVICE_URL: "http://customer-service:${CUSTOMER_SERVICE_PORT:-4002}"
       SERVICE_SERVICE_URL: "http://service-service:${SERVICE_SERVICE_PORT:-4003}"
       EMAIL_SERVICE_URL: "http://email-service:${EMAIL_SERVICE_PORT:-4006}"
+      # The installed profession bundle's schemas and rules.
+      BUNDLE_SERVICE_URL: "http://bundle-service:${BUNDLE_SERVICE_PORT:-4008}"
     depends_on:
       postgres:
         condition: service_healthy
@@ -245,6 +249,8 @@ services:
       DB_PASSWORD: "${DB_PASSWORD:-app_password}"
       JWT_SECRET: "${JWT_SECRET:-omnicore-development-secret-change-this}"
       JWT_ISSUER: "${JWT_ISSUER:-omnicore-identity-service}"
+      # The installed profession bundle's firm and professional fields.
+      BUNDLE_SERVICE_URL: "http://bundle-service:${BUNDLE_SERVICE_PORT:-4008}"
       JWT_EXPIRES_IN: "${JWT_EXPIRES_IN:-8h}"
     depends_on:
       postgres:
