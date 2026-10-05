@@ -428,6 +428,27 @@ release at the end. Rules already decided — keep to them:
   options by label in tests). Not yet possible: showing a field only for some constitutions
   (needs conditional properties in contract v1).
 
+#### Engagements and fees (M3)
+
+- engagement-service owns `engagement_types` (installed from the bundle by the
+  `engagementTypes` install step), `engagements` (one per client per period of a type —
+  `UNIQUE (customer_id, engagement_type_id, period_start)`), `engagement_lines` (services
+  engaged, fee and expenses) and `engagement_payments` (migration 015). Gross, received and
+  balance are computed on read, never stored.
+- Periods come from bundle-sdk `schedules`, generated around **today in
+  `organizations.time_zone`** (`GET /engagements/periods`), never a hard-coded list.
+- Fee amounts are part of an engagement only for `fees.read`; setting them needs `fees.update`.
+  Someone without it may change which services are engaged, and existing fees are carried
+  over, not zeroed. Payments need `fees.read`/`fees.update` and are audited
+  (`payment.recorded`).
+- The install-step route (`PUT /engagements/bundles/:key/:version`) is the one capability route
+  without `requireBundle`: it runs while the install is still in progress.
+- New engagements raise `engagement.created`; email-service's event queue accepts the capability
+  events alongside the core ones.
+- The wizard creates a new client's first engagement as a second request after the client is
+  saved; if it fails, the client page says so and the Engagement tab can add it.
+  `components/bundle/EngagementForm.jsx` is shared by the wizard and the Engagement tab.
+
 ### Email
 
 - An automation sends from its chosen account (`email_account_id`, the form's "Send from"), or

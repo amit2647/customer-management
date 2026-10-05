@@ -392,3 +392,46 @@ test("the firm's FRN and signing partner are set in Settings", async ({ page }) 
   await expect(page.getByText("Default signatory", { exact: true }).first()).toBeVisible();
   await shot(page, "firm-settings");
 });
+
+// Milestone M3 — engagements and fees, after the CA install.
+test("a client's first engagement carries its fees, and a payment settles them", async ({ page }) => {
+  await prepare(page);
+  await signIn(page);
+  await page.goto("/clients/new");
+
+  const name = unique("Sharma Traders");
+
+  await page.getByLabel("Entity name").fill(name);
+  await pickOption(page, /Constitution/, "Proprietorship");
+  await page.getByRole("button", { name: /Continue/ }).click();
+  await page.getByRole("button", { name: /Continue/ }).click();
+
+  // Step 3: services, and the first financial year's fees (WIZ-08).
+  await page.getByRole("button", { name: /Income Tax Return/ }).click();
+  await expect(page.getByLabel("Financial year")).toBeVisible();
+  await page.getByLabel("Fee for Income Tax Return").fill("15000");
+  await page.getByLabel("Expenses for Income Tax Return").fill("500");
+  await expect(page.getByText("fees and expenses for the period")).toBeVisible();
+  await shot(page, "wizard-engagement");
+
+  await page.getByRole("button", { name: /Continue/ }).click();
+  await page.getByRole("button", { name: /Continue/ }).click();
+  await page.getByRole("button", { name: "Save Client" }).click();
+  await expect(page.getByRole("heading", { name: new RegExp(name) })).toBeVisible();
+
+  await page.getByRole("tab", { name: "Engagement" }).click();
+  await expect(page.getByRole("article", { name: /Annual engagement/ })).toBeVisible();
+  await shot(page, "client-engagement");
+
+  await page.getByRole("tab", { name: "Fees" }).click();
+  await expect(page.getByText("Balance ₹15,500")).toBeVisible();
+
+  await page.getByRole("button", { name: "Update payment" }).click();
+  await expect(page.getByLabel("Amount")).toHaveValue("15500");
+  await page.getByLabel("Reference").fill("UTR-0042");
+  await page.getByRole("button", { name: "Record payment" }).click();
+
+  await expect(page.getByText("Fully paid")).toBeVisible();
+  await expect(page.getByText(/UTR-0042/)).toBeVisible();
+  await shot(page, "client-fees");
+});
