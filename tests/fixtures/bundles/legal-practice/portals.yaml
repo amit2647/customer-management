@@ -1,0 +1,8 @@
+portals:
+  - key: ecourts
+    name: eCourts
+    url: https://ecourts.gov.in
+    enabledWhen: { engaged: litigation }
+    fields:
+      - { key: user_id, label: User ID, secret: false }
+      - { key: password, label: Password, secret: true }

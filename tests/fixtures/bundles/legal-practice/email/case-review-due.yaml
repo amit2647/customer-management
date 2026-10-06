@@ -1,0 +1,11 @@
+key: case_review_due_soon
+name: Case review due soon
+trigger: obligation.due_soon
+subject: "{{obligation.title}} is due on {{obligation.due_on}}"
+body: |
+  Dear {{client.name}},
+
+  {{obligation.title}} is due on {{obligation.due_on}}.
+
+  Regards,
+  {{organization.name}}

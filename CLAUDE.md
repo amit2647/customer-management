@@ -333,8 +333,9 @@ Qdrant is a **derived index; Postgres is the source of truth**. Two collections:
 ### Profession bundles (in progress on `develop`)
 
 The next release turns the CRM into a shared core plus an installable profession **bundle**
-(CA practice first). Milestones M0–M8 land on `develop`; `main` stays frozen until the single
-release at the end. Rules already decided — keep to them:
+(CA practice first). Milestones M0–M8 land on `develop`. The release is cut as
+`release/v2.0.0` from `develop` (tagged `v2.0.0`) at the end of M8 — **nothing is merged into
+`main`**, which stays frozen. Rules already decided — keep to them:
 
 - **A bundle is versioned data, never code**: a repo of YAML/JSON/Markdown (`bundle.yaml` plus
   schemas, catalog, deadline rules, document templates, portals, roles, email, help). Its
@@ -591,6 +592,31 @@ release at the end. Rules already decided — keep to them:
   through `validateProfile` and `createCustomer` with the wizard's `extend` hook, each in its
   own transaction: a duplicate identifier is *skipped*, any other refusal is reported by line.
   The frontend's page is `/clients/import`.
+#### Customized items and the second bundle (M8)
+
+- **Accept or keep, per item.** An upgrade keeps a firm's edit and flags it; Settings →
+  Profession Bundle → *Customized items* (`BundleCustomized.jsx`) lists every item the firm
+  edited that the installed version ships differently — only the differing fields, the firm's
+  beside the bundle's — with **Accept new** / **Keep mine**. bundle-service
+  (`customizedService.js`, `GET`/`POST /bundles/installed/customized`, `bundles.manage`) adds
+  no rules of its own: it calls each editable step's **own install endpoint** at the installed
+  version — `?dryRun=1` to list (the install runs in its transaction, reports the `customized`
+  items it kept, and rolls back), then once more with `accept` or `dismiss: ["kind:key"]` for
+  the choice. Audited as `bundle.item_accepted` / `bundle.item_kept`.
+- `bundleSync.decide(existing, shipped, { accept, dismiss })`: accept turns a keep into an
+  update; dismiss keeps the firm's row and sets its `source_checksum` to the shipped one, so it
+  is flagged again only when a later version changes that item. `choicesOf(req)` /
+  `optionsFor()` read the request. Still identical in all seven copies. Accepting an email
+  automation never switches it on; accepting a document template adds the bundle's text as the
+  current version (the firm's stays in the history).
+- **A second profession proves the contract.** `tests/fixtures/bundles/legal-practice` (matters
+  per calendar year, a court portal, its own namespace `law`) is mounted into the **test**
+  stack's registry by `docker-compose.test.yml` and never shipped; `tests/integration/contract.test.js`
+  installs it, runs a matter through deadlines, letters, the vault and the dashboard, checks every
+  offered bundle for conformance (installs fully, reinstall adds nothing, nothing customized),
+  and walks an upgrade through keep / retire / accept / keep mine. A new bundle should pass that
+  file unchanged.
+
 ### Email
 
 - An automation sends from its chosen account (`email_account_id`, the form's "Send from"), or

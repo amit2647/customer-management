@@ -79,6 +79,10 @@ services:
   bundle-service:
     container_name: !reset null
     ports: !reset []
+    # A second, test-only bundle beside the ones baked into the image (M8:
+    # proves a new profession needs no core change). Never shipped.
+    volumes:
+      - ./tests/fixtures/bundles/legal-practice:/app/registry/legal-practice:ro
 
   engagement-service:
     container_name: !reset null

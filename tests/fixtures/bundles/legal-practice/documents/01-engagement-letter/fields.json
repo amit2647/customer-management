@@ -1,0 +1,6 @@
+{
+  "type": "object",
+  "properties": {
+    "fee_note": { "type": "string", "title": "Fee note", "maxLength": 200 }
+  }
+}

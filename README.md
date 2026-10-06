@@ -9,7 +9,8 @@ The project is organized as a **multi-repository architecture**. Each service is
 > **In progress on `develop`:** profession bundles — the CRM as a shared core plus an
 > installable profession bundle, CA practice first. Milestone M0 (foundations) adds the
 > `bundle-sdk` library and five capability services; see **Profession Bundles** below.
-> `main` stays frozen at the last release until the bundles work ships as one release.
+> `main` stays frozen at the last release; the bundles work ships as one release on its own
+> branch, `release/v2.0.0` (tag `v2.0.0`), never merged into `main`.
 
 ---
 
@@ -688,7 +689,7 @@ An organization without a bundle sees exactly today's product.
 | M5 Documents | Done — the client **Documents** tab (a tile per letter for the year, faded with the reason when it does not apply), a letter editor with the firm's fixed details, pre-filled fields and a live print preview, drafts and finalize (with UDIN), and **Settings → Document templates** to write the firm's own text as a new version. The eight CA letters ship as skeletons awaiting the firm's wording |
 | M6 Vault and files | Done — per client, the **Credentials** tab (nine CA portals; passwords encrypted per organization, shown only after a reveal with a recorded reason) and the **Files** tab (uploads to SeaweedFS, always downloaded as attachments); credentials wait for the signed consent and power of attorney; a purge removes the files too |
 | M7 Assistant, dashboard, CSV | Done — the assistant answers deadline, client-profile and engagement questions and proposes status changes, payments and letters for confirmation (never anything in the vault), and searches the bundle's help; the Dashboard's top row becomes four CA figures (clients, open prospects, overdue and in-progress deadlines); Clients exports and imports CSV (bank numbers masked; duplicate PANs skipped) |
-| M8 | Prove the contract, release |
+| M8 Prove the contract, release | Settings → Profession Bundle lists **customized items** (things you edited that a newer version ships differently) with *Accept new* / *Keep mine*; a second, test-only bundle (Legal Practice) proves a new profession needs no core change; the release is the branch `release/v2.0.0` |
 
 ```bash
 cd bundle-sdk && npx bundle-lint test/fixtures/valid-bundle

@@ -1,0 +1,16 @@
+roles:
+  - key: advocate
+    name: Advocate
+    description: Handles clients, matters, deadlines and letters.
+    permissions:
+      - customers.read
+      - customers.create
+      - customers.update
+      - services.read
+      - engagements.read
+      - engagements.update
+      - obligations.read
+      - obligations.update
+      - documents.read
+      - documents.generate
+      - law.brief.manage

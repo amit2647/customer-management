@@ -1,0 +1,14 @@
+groups:
+  - { key: disputes, label: Disputes }
+  - { key: advisory, label: Advisory }
+
+services:
+  - { key: litigation, name: Litigation, group: disputes, description: Representation before a court or tribunal }
+  - { key: contract_review, name: Contract Review, group: advisory, description: Review and negotiation of contracts }
+  - { key: legal_notice, name: Legal Notice, group: disputes, description: Drafting and sending a legal notice }
+
+packages:
+  - key: dispute_bundle
+    name: Dispute package
+    description: Notice and litigation
+    services: [legal_notice, litigation]

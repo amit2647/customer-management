@@ -1,0 +1,5 @@
+key: matter_engagement_letter
+name: "Engagement letter — Matter"
+revision: 1
+badge: Retainer
+enabledWhen: { "engaged": "litigation" }

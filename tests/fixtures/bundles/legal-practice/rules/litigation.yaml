@@ -1,0 +1,10 @@
+# A yearly rule falls after its period ends: the report on a calendar year is
+# due on 31 January of the next.
+rules:
+  - key: annual_case_report
+    service: litigation
+    name: Annual case report
+    revision: 1
+    kind: periodic
+    frequency: yearly
+    schedule: { date: "01-31" }

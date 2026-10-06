@@ -1,0 +1,4 @@
+cards:
+  - { key: clients, label: Clients, permission: customers.read, query: { name: clients_total } }
+  - { key: litigation, label: Litigation matters, permission: customers.read, query: { name: clients_with_service, params: { services: [litigation] } } }
+  - { key: overdue, label: Overdue deadlines, permission: obligations.read, query: { name: obligations_by_state, params: { state: overdue } } }

@@ -1,0 +1,7 @@
+{
+  "type": "object",
+  "properties": {
+    "client_kind": { "type": "string", "title": "Client kind", "enum": ["individual", "company"], "default": "individual" }
+  },
+  "required": ["client_kind"]
+}
