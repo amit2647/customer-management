@@ -1,0 +1,9 @@
+# Findings reviewed and accepted. Each line is a gitleaks fingerprint
+# (commit:file:rule:line); add one only for a value that is public on purpose,
+# with the reason here.
+#
+# The vault's fixed test key in docker-compose.test.yml: base64 of
+# "test-only-vault-key-not-secret!!", used only by the throwaway test stack so
+# the suite never touches the real VAULT_MASTER_KEY. Later commits carry an
+# inline gitleaks:allow marker instead.
+a160117a5e70bc2a54b7f1f5f4a9033416389d06:docker-compose.test.yml:generic-api-key:101
