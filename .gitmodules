@@ -1,66 +1,76 @@
 [submodule "customer-service"]
     path = customer-service
     url = https://github.com/amit2647/customer-service.git
+	branch = release/v2.0.0
 
 [submodule "dashboard-service"]
     path = dashboard-service
     url = https://github.com/amit2647/dashboard-service.git
+	branch = release/v2.0.0
 
 [submodule "email-service"]
     path = email-service
     url = https://github.com/amit2647/email-service.git
+	branch = release/v2.0.0
 
 [submodule "frontend"]
     path = frontend
     url = https://github.com/amit2647/customer_mgmt_frontend.git
+	branch = release/v2.0.0
 
 [submodule "identity-service"]
     path = identity-service
     url = https://github.com/amit2647/identity-service.git
+	branch = release/v2.0.0
 
 [submodule "kong"]
     path = kong
     url = https://github.com/amit2647/api_gateway.git
+	branch = release/v2.0.0
 
 [submodule "lead-service"]
     path = lead-service
     url = https://github.com/amit2647/lead-service.git
+	branch = release/v2.0.0
 
 [submodule "service-service"]
     path = service-service
     url = https://github.com/amit2647/service-service.git
+	branch = release/v2.0.0
 
 [submodule "migrations"]
     path = migrations
     url = https://github.com/amit2647/migrations.git
+	branch = release/v2.0.0
 [submodule "assistant-service"]
     path = assistant-service
     url = https://github.com/amit2647/assistant-service.git
+	branch = release/v2.0.0
 [submodule "bundle-sdk"]
 	path = bundle-sdk
 	url = https://github.com/amit2647/bundle-sdk.git
-	branch = develop
+	branch = release/v2.0.0
 [submodule "bundle-service"]
 	path = bundle-service
 	url = https://github.com/amit2647/bundle-service.git
-	branch = develop
+	branch = release/v2.0.0
 [submodule "engagement-service"]
 	path = engagement-service
 	url = https://github.com/amit2647/engagement-service.git
-	branch = develop
+	branch = release/v2.0.0
 [submodule "obligation-service"]
 	path = obligation-service
 	url = https://github.com/amit2647/obligation-service.git
-	branch = develop
+	branch = release/v2.0.0
 [submodule "document-service"]
 	path = document-service
 	url = https://github.com/amit2647/document-service.git
-	branch = develop
+	branch = release/v2.0.0
 [submodule "vault-service"]
 	path = vault-service
 	url = https://github.com/amit2647/vault-service.git
-	branch = develop
+	branch = release/v2.0.0
 [submodule "bundles/ca-practice"]
 	path = bundles/ca-practice
 	url = https://github.com/amit2647/bundle-ca-practice.git
-	branch = develop
+	branch = release/v2.0.0
