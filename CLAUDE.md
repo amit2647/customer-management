@@ -526,6 +526,34 @@ release at the end. Rules already decided — keep to them:
   wording is `[Wording: …]` gaps until the firm supplies it — so none can be finalized as
   shipped. The order letters are offered in is their folder order (`documents/01-…`).
 
+
+#### Vault and files (M6)
+
+- vault-service owns `vault_keys`, `vault_settings`, `portals`, `portal_credentials`,
+  `credential_reveals` and `client_files` (migration 019); file bytes live in SeaweedFS.
+- **Envelope encryption** (`keyService.js`): `VAULT_MASTER_KEY` (32 bytes, base64; only
+  vault-service holds it) wraps one random data key per organization; each credential's secret
+  fields are AES-256-GCM under it, with additional data naming organization, client and portal,
+  so a ciphertext moved to another row does not decrypt. **Without a valid key the vault
+  refuses (503)** rather than storing weakly. **Back up `VAULT_MASTER_KEY`**: losing it makes
+  every stored password unreadable. The test stack sets a fixed public test key
+  (`docker-compose.test.yml`), so the suite never touches the real one.
+- Secrets leave the service in one place only: `POST …/reveal` (`vault.reveal`, a reason of at
+  least five characters, rate limited, `Cache-Control: no-store`), recorded in
+  `credential_reveals` (plain ids, outlives a purge) and `audit_events`. Listings return the
+  fields that are not secret and `hasSecret`. A secret left blank on save keeps the stored one.
+  **No credential is saved until the bundle's consent file category (CA:
+  `consent_poa_signed`) is on file**, and that file cannot be deleted while credentials rely on
+  it. The assistant has no vault tool, and `VAULT_MASTER_KEY`/`S3_*` are blanked for it.
+- Files: uploads are multipart, capped at 25 MB (Kong's `request-size-limiting` refuses larger
+  bodies first), hashed (sha256) and stored under a random key `org/<id>/<uuid>`; downloads are
+  always `attachment` with `nosniff` and `application/octet-stream`. A purge sets
+  `client_files.customer_id` NULL; the sweeper (every `VAULT_SWEEP_INTERVAL_MS`, or
+  `POST /vault/files/sweep`) deletes the object, then the row.
+- A route that streams must finish streaming before it returns: the shared `respond()` wrapper
+  answers `{ ok: true }` when nothing has been sent yet (this once corrupted downloads).
+- Documents can read `client.portals` (the portals a client has credentials for), so the CA
+  power of attorney lists only those (FIX-22).
 ### Email
 
 - An automation sends from its chosen account (`email_account_id`, the form's "Send from"), or

@@ -95,6 +95,12 @@ services:
   vault-service:
     container_name: !reset null
     ports: !reset []
+    environment:
+      # A fixed, public test key, so the suite never uses the real one from
+      # .env and CI (which has no .env) can still store credentials.
+      VAULT_MASTER_KEY: "dGVzdC1vbmx5LXZhdWx0LWtleS1ub3Qtc2VjcmV0ISE="
+      # Plenty of reveals for the suite; the limit itself is unit-tested.
+      VAULT_REVEALS_PER_WINDOW: "1000"
 
   kong:
     container_name: !reset null

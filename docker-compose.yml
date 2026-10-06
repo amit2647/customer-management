@@ -498,6 +498,7 @@ services:
       ENGAGEMENT_SERVICE_URL: "http://engagement-service:${ENGAGEMENT_SERVICE_PORT:-4009}"
       OBLIGATION_SERVICE_URL: "http://obligation-service:${OBLIGATION_SERVICE_PORT:-4010}"
       DOCUMENT_SERVICE_URL: "http://document-service:${DOCUMENT_SERVICE_PORT:-4011}"
+      VAULT_SERVICE_URL: "http://vault-service:${VAULT_SERVICE_PORT:-4012}"
     depends_on:
       postgres:
         condition: service_healthy
@@ -643,6 +644,7 @@ services:
       S3_BUCKET: "${S3_BUCKET:-client-files}"
       S3_ACCESS_KEY: "${S3_ACCESS_KEY:-omnicore-dev}"
       S3_SECRET_KEY: "${S3_SECRET_KEY:-omnicore-development-s3-secret-change-this}"
+      BUNDLE_SERVICE_URL: "http://bundle-service:${BUNDLE_SERVICE_PORT:-4008}"
     depends_on:
       postgres:
         condition: service_healthy

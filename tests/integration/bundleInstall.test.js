@@ -50,14 +50,14 @@ describe("an organization without a bundle", () => {
 });
 
 describe("the bundle registry", () => {
-  test("offers CA Practice 0.5.0 to an administrator", async () => {
+  test("offers CA Practice 0.6.0 to an administrator", async () => {
     const { status, body } = await api("GET", "/bundles", { token: admin });
 
     assert.equal(status, 200);
 
     const ca = body.bundles.find((bundle) => bundle.key === "ca-practice");
 
-    assert.equal(ca.version, "0.5.0");
+    assert.equal(ca.version, "0.6.0");
     assert.equal(ca.contents.services, 12);
     assert.deepEqual(ca.contents.roles, ["Partner", "Audit Manager", "Article Assistant", "Accounts Executive"]);
   });
@@ -84,7 +84,7 @@ describe("installing CA Practice", () => {
     assert.equal(body.bundle.status, "installed");
     assert.deepEqual(
       body.bundle.steps.map((step) => [step.step, step.status]),
-      [["permissions", "done"], ["roles", "done"], ["catalog", "done"], ["engagementTypes", "done"], ["obligations", "done"], ["documents", "done"], ["email", "done"]],
+      [["permissions", "done"], ["roles", "done"], ["catalog", "done"], ["engagementTypes", "done"], ["obligations", "done"], ["documents", "done"], ["vault", "done"], ["email", "done"]],
     );
   });
 
@@ -195,7 +195,7 @@ describe("an install that fails part-way", () => {
     assert.equal(progress.body.bundle.status, "failed");
     assert.deepEqual(
       progress.body.bundle.steps.map((step) => [step.step, step.status]),
-      [["permissions", "done"], ["roles", "done"], ["catalog", "failed"], ["engagementTypes", "pending"], ["obligations", "pending"], ["documents", "pending"], ["email", "pending"]],
+      [["permissions", "done"], ["roles", "done"], ["catalog", "failed"], ["engagementTypes", "pending"], ["obligations", "pending"], ["documents", "pending"], ["vault", "pending"], ["email", "pending"]],
     );
 
     // Not installed yet, so the organization still works as before.
@@ -211,19 +211,19 @@ describe("an install that fails part-way", () => {
     assert.equal(body.bundle.status, "installed");
     assert.deepEqual(
       body.bundle.steps.map((step) => [step.step, step.attempts]),
-      [["permissions", 1], ["roles", 1], ["catalog", 2], ["engagementTypes", 1], ["obligations", 1], ["documents", 1], ["email", 1]],
+      [["permissions", 1], ["roles", 1], ["catalog", 2], ["engagementTypes", 1], ["obligations", 1], ["documents", 1], ["vault", 1], ["email", 1]],
     );
   });
 });
 
 describe("upgrading", () => {
-  test("an organization on 0.4.0 upgrades to 0.5.0 in place, gaining what is new and duplicating nothing", async () => {
+  test("an organization on 0.4.0 upgrades to 0.6.0 in place, gaining what is new and duplicating nothing", async () => {
     const firm = await caFirm(admin, "CA Firm (upgrade)");
 
     // Make it an organization that installed 0.4.0, before documents existed.
     sql(`INSERT INTO bundle_versions (bundle_key, version, contract_version, manifest, checksum)
          SELECT bundle_key, '0.4.0', contract_version, manifest, repeat('0', 64) FROM bundle_versions
-         WHERE bundle_key = 'ca-practice' AND version = '0.5.0' ON CONFLICT DO NOTHING`);
+         WHERE bundle_key = 'ca-practice' AND version = '0.6.0' ON CONFLICT DO NOTHING`);
     sql(`UPDATE organization_bundles SET version = '0.4.0' WHERE organization_id = ${firm.orgId}`);
     sql(`UPDATE bundle_install_steps SET version = '0.4.0'
          WHERE organization_bundle_id = (SELECT id FROM organization_bundles WHERE organization_id = ${firm.orgId})`);
@@ -232,14 +232,14 @@ describe("upgrading", () => {
 
     const refused = await api("POST", "/bundles/ca-practice/install", { token: firm.token });
     assert.equal(refused.status, 409);
-    assert.match(refused.body.error, /upgrade to 0.5.0 instead/);
+    assert.match(refused.body.error, /upgrade to 0.6.0 instead/);
 
     const upgraded = await api("POST", "/bundles/ca-practice/upgrade", { token: firm.token });
 
     assert.equal(upgraded.status, 200, JSON.stringify(upgraded.body));
-    assert.equal(upgraded.body.bundle.version, "0.5.0");
+    assert.equal(upgraded.body.bundle.version, "0.6.0");
     assert.equal(upgraded.body.bundle.status, "installed");
-    assert.equal((await api("GET", "/bundles/installed", { token: firm.token })).body.bundle.version, "0.5.0");
+    assert.equal((await api("GET", "/bundles/installed", { token: firm.token })).body.bundle.version, "0.6.0");
     assert.equal(sql(`SELECT count(*) FROM document_templates WHERE organization_id = ${firm.orgId} AND is_current`), "8");
     assert.equal(sql(`SELECT count(*) FROM services WHERE organization_id = ${firm.orgId}`), services);
     assert.equal(sql(`SELECT count(*) FROM audit_events WHERE organization_id = ${firm.orgId} AND action = 'bundle.upgraded'`), "1");

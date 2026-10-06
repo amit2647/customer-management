@@ -11,11 +11,6 @@ const { api, adminToken, waitFor, sql } = require("./lib");
  * in this directory is the proof of that half).
  */
 
-// Capability services that have no routes of their own yet (bundle-service
-// gained its routes in M1, engagement-, obligation- and document-service in
-// M3, M4 and M5;
-// each has its own tests).
-const CAPABILITIES = ["vault"];
 
 // Runs a command inside one of this stack's containers.
 function exec(service, command) {
@@ -51,23 +46,6 @@ describe("capability services", () => {
     assert.deepEqual(response.body, { bundle: null });
   });
 
-  for (const prefix of CAPABILITIES) {
-    test(`/api/${prefix} reaches its own service through Kong`, async () => {
-      // Kong answers a path it has no route for itself, with JSON; a request
-      // it forwarded is answered by Express, which has no routes yet in M0.
-      const response = await waitFor(
-        async () => {
-          const result = await api("GET", `/${prefix}`, { token: admin });
-
-          return [502, 503].includes(result.status) ? null : result;
-        },
-        { timeout: 60000, what: `${prefix} upstream` },
-      );
-
-      assert.equal(response.status, 404);
-      assert.match(String(response.body), new RegExp(`Cannot GET /${prefix}`));
-    });
-  }
 });
 
 describe("schema", () => {

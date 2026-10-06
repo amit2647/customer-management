@@ -618,3 +618,48 @@ test("a firm writes its own letter text, then a client's letter is drafted and f
   await page.getByRole("button", { name: /Back to Client/ }).click();
   await expect(page.getByRole("region", { name: "Documents made" }).getByText("Final")).toBeVisible();
 });
+
+// Milestone M6 — the vault, after the CA install.
+test("a client's signed consent is uploaded, then a portal password is saved and revealed with a reason", async ({ page, request }) => {
+  const login = await request.post(`${API}/auth/login`, { data: ADMIN });
+  const headers = { Authorization: `Bearer ${(await login.json()).token}` };
+  const name = unique("Patil Textiles");
+  const created = await request.post(`${API}/customers`, { headers, data: { name, profile: { attributes: { constitution: "proprietorship" } } } });
+  expect(created.status()).toBe(201);
+  const customerId = (await created.json()).id;
+
+  await prepare(page);
+  await signIn(page);
+  await page.goto(`/clients/${customerId}`);
+
+  // Credentials wait for the signed consent.
+  await page.getByRole("tab", { name: "Credentials" }).click();
+  await expect(page.getByText(/Upload the client's signed consent/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Add GST portal credentials" })).toBeDisabled();
+
+  // Files: the consent first.
+  await page.getByRole("button", { name: "Go to Files" }).click();
+  await expect(page.getByLabel("Category")).toHaveValue("consent_poa_signed");
+  await page.getByLabel("Choose files").setInputFiles({ name: "POA signed.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.4 signed consent") });
+  await expect(page.getByText("The signed consent and power of attorney is on file.")).toBeVisible();
+  await expect(page.getByRole("region", { name: "Client files" }).getByText("POA signed.pdf")).toBeVisible();
+  await shot(page, "client-files");
+
+  // Credentials: save, masked, then reveal with a reason.
+  await page.getByRole("tab", { name: "Credentials" }).click();
+  await page.getByRole("button", { name: "Add GST portal credentials" }).click();
+  const form = page.getByRole("form", { name: "GST portal credentials" });
+  await form.getByLabel("Username").fill("patil_gst");
+  await form.getByLabel("Password").fill("Gst@2026!e2e");
+  await form.getByRole("button", { name: "Save" }).click();
+  await expect(page.getByText("Credentials saved.")).toBeVisible();
+  await expect(page.getByText("••••••••")).toBeVisible();
+  await expect(page.getByText("Gst@2026!e2e")).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Reveal GST portal password" }).click();
+  await page.getByLabel(/Why do you need it/).fill("Filing GSTR-3B for September");
+  await page.getByRole("button", { name: "Reveal for 30 seconds" }).click();
+  await expect(page.getByText("Gst@2026!e2e")).toBeVisible();
+  await expect(page.getByRole("region", { name: "Reveal log" })).toContainText("Filing GSTR-3B for September");
+  await shot(page, "client-credentials");
+});
