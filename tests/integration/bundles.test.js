@@ -12,9 +12,10 @@ const { api, adminToken, waitFor, sql } = require("./lib");
  */
 
 // Capability services that have no routes of their own yet (bundle-service
-// gained its routes in M1, engagement- and obligation-service in M3 and M4;
+// gained its routes in M1, engagement-, obligation- and document-service in
+// M3, M4 and M5;
 // each has its own tests).
-const CAPABILITIES = ["documents", "vault"];
+const CAPABILITIES = ["vault"];
 
 // Runs a command inside one of this stack's containers.
 function exec(service, command) {

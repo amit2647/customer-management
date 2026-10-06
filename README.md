@@ -685,7 +685,8 @@ An organization without a bundle sees exactly today's product.
 | M3 Engagements and fees | Done — one engagement per client per financial year (generated from today), services with fees and expenses, the first year captured in the wizard, **Engagement** and **Fees** tabs with payments and balance |
 | M4 Deadlines | Done — deadline rules for GST, TDS, income tax, audits and ROC, generated from each year's engagement; the client **Compliance** tab, the firm-wide **Deadlines** feed, **Settings → Deadline rules** with government extensions, and reminder emails (raised once per deadline, sent only when the firm switches the automation on) |
 | Before M5 | Done — with a bundle, **Prospects** is the one screen for leads (Board or List, with converted prospects on request), and a prospect and the client it became are linked both ways: the client shows what the prospect stage learned, a retried conversion never makes a second client, and older clients can be linked to their prospect by hand |
-| M5–M8 | Documents, vault and files, assistant/dashboard/import, release |
+| M5 Documents | Done — the client **Documents** tab (a tile per letter for the year, faded with the reason when it does not apply), a letter editor with the firm's fixed details, pre-filled fields and a live print preview, drafts and finalize (with UDIN), and **Settings → Document templates** to write the firm's own text as a new version. The eight CA letters ship as skeletons awaiting the firm's wording |
+| M6–M8 | Vault and files, assistant/dashboard/import, release |
 
 ```bash
 cd bundle-sdk && npx bundle-lint test/fixtures/valid-bundle

@@ -378,6 +378,13 @@ release at the end. Rules already decided — keep to them:
   `failed`), and installing again resumes at that step without re-running finished ones. No
   transaction spans the calls: the `organization_bundles` row is a lease (`installing` with a
   recent `updated_at`), taken under an advisory lock, stale after two minutes.
+- **Upgrading** (`POST /bundles/:key/upgrade`, Settings → Profession Bundle → "Upgrade to x.y.z"):
+  the same steps again at the newer version, each keeping the firm's edits (`bundleSync`). The
+  organization keeps working on the version it has throughout: `organization_bundles.version`
+  changes only when every step has finished, `GET /bundles/installed` serves the old version
+  while the row is `upgrading`, and a failed upgrade leaves the row `installed` at the old version
+  — upgrading again resumes at the failed step (steps are recorded per version). Install refuses
+  a newer version over an installed one ("upgrade instead"); nothing goes back a version.
 - Every install endpoint uses `src/services/bundleSync.js` (`decide()`: insert / unchanged /
   update / keep) — **copied** into identity-, service- and email-service like the auth
   middleware, with an identical test beside each copy; keep them identical. A pre-existing row
@@ -483,6 +490,41 @@ release at the end. Rules already decided — keep to them:
   (`obligations.rules`) runs it for the caller's organization now.
 - CA rules exist for GST, TDS, income tax, audits and ROC. Accounting, PF/ESIC and PTRC have
   none until a practitioner confirms the dates — don't invent them.
+
+#### Documents (M5)
+
+- document-service owns `document_templates` (installed by the `documents` step) and
+  `generated_documents` (migration 018). **Templates are versioned and never edited in place**:
+  a bundle upgrade or a firm's own edit adds a version and makes it current (one current per
+  key). A document points at the version it was made from (FK `RESTRICT`), is re-rendered only
+  from that version while a draft, and keeps its `rendered_html` once finalized — a later
+  version never changes a letter already issued.
+- Upgrades keep a firm's text (`bundleSync.decide`): untouched templates move to the new bundle
+  text; a firm-edited one stays current, is flagged `update_available_version`, and the newer
+  bundle text is stored beside it as a non-current version so **Restore** can take it.
+- Rendering is bundle-sdk `templates` only: values always escaped, `[Label]` marks for anything
+  missing. `templates.check(body, fields)` is the one set of template rules — bundle-lint runs
+  it on bundle documents and document-service on a firm's edit (parse, known helpers, no
+  `{{{ }}}`, no `<script>`/`<iframe>`/`on…=`/`javascript:`, only the binding roots and the
+  document's own fields). Fields pre-fill from data via `"ui:prefill": "<path>"` in the field's
+  ui (`templates.prefill`); the render context (`contextService.js`) carries exactly the bindings
+  lint allows — `client` (+ identifiers, people, `signatory`), `engagement` for the period
+  (+ `fee_total`, `expenses_total`, `services`), `firm`, `signatory` (the firm's default
+  partner), `fields`, `today`, `period`.
+- **Finalize refuses while any `[placeholder]` remains** or the fields fail their schema, and
+  writes `document.finalized` to `audit_events` (with the optional UDIN). Finals cannot be
+  changed or deleted; drafts can.
+- The frontend shows letters in `components/documents/LetterFrame.jsx`: an iframe with
+  `sandbox="allow-same-origin allow-modals"` (no scripts can run in it; the page can size and
+  print it), letter CSS of its own (0.5 in margins, highlighted gaps kept when printing,
+  favourable/adverse answers in green/red).
+- JSONB does not keep key order, so the service records each template's field order as
+  `ui:order` at install (`withOrder`). A bundle's own `ui:order` wins.
+- Editing a template's text needs `system.settings` (Settings → Document templates); previewing
+  unsaved text through `POST /documents/preview` with a `body` needs it too.
+- **CA letters are skeletons**: every field, condition and pre-fill is wired, but the legal
+  wording is `[Wording: …]` gaps until the firm supplies it — so none can be finalized as
+  shipped. The order letters are offered in is their folder order (`documents/01-…`).
 
 ### Email
 

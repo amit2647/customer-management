@@ -565,3 +565,56 @@ test("with a bundle, Prospects and Clients replace Leads and Customers, and a co
   await page.getByRole("region", { name: "Prospect list" }).getByRole("link", { name: "Open client" }).click();
   await expect(page.getByRole("heading", { name: new RegExp(name) })).toBeVisible();
 });
+
+// Milestone M5 — documents, after the CA install.
+test("a firm writes its own letter text, then a client's letter is drafted and finalized", async ({ page, request }) => {
+  const login = await request.post(`${API}/auth/login`, { data: ADMIN });
+  const headers = { Authorization: `Bearer ${(await login.json()).token}` };
+
+  // A company engaged for a statutory audit this year.
+  const name = unique("Kulkarni Infra Pvt Ltd");
+  const services = await (await request.get(`${API}/services`, { headers })).json();
+  const { current } = await (await request.get(`${API}/engagements/periods?type=annual`, { headers })).json();
+  const created = await request.post(`${API}/customers`, { headers, data: { name, address: "4 FC Road, Pune", profile: { attributes: { constitution: "pvt_ltd" }, identifiers: { cin: `U45200MH2016PTC${String(Date.now()).slice(-6)}` } } } });
+  expect(created.status()).toBe(201);
+  const customerId = (await created.json()).id;
+  await request.post(`${API}/engagements`, { headers, data: { customerId, typeKey: "annual", period: current, lines: [{ serviceId: services.find((s) => s.key === "statutory_audit").id, feeAmount: 60000 }] } });
+
+  await prepare(page);
+  await signIn(page);
+
+  // Settings → Document templates: the firm's own wording for the consent letter.
+  await page.goto("/settings/documents");
+  await expect(page.getByRole("region", { name: "Templates" }).getByText("Consent and eligibility certificate")).toBeVisible();
+  await shot(page, "document-templates");
+  await page.getByRole("button", { name: "Consent and eligibility certificate" }).click();
+  await page.getByLabel("Template text").fill("<p>{{firm.name}} · Ref {{fields.reference}}</p><p>We consent to act as statutory auditors of {{client.name}} for FY {{period.label}}.</p><p>{{signatory.name}}</p>");
+  await page.getByRole("button", { name: "Save as firm's version" }).click();
+  await expect(page.getByText("Saved as your firm's version.")).toBeVisible();
+  await shot(page, "document-template-editor");
+
+  // The client's Documents tab: the year's letters.
+  await page.goto(`/clients/${customerId}`);
+  await page.getByRole("tab", { name: "Documents" }).click();
+  const letters = page.getByRole("group", { name: "Letters" });
+  await expect(letters.getByRole("button", { name: /Engagement letter — Tax audit/ })).toBeDisabled();
+  await shot(page, "client-documents");
+
+  // Start the consent letter: preview, fill, save a draft, finalize.
+  await letters.getByRole("button", { name: /Consent and eligibility/ }).click();
+  await expect(page.getByRole("region", { name: "Firm details" })).toContainText("Rao & Co LLP");
+  await page.getByLabel(/Reference number/).fill("CA/26/7");
+  await page.getByRole("button", { name: "Save draft" }).click();
+  await expect(page.getByText("Draft saved.")).toBeVisible();
+  await expect(page.frameLocator("iframe.letter-frame").getByText(/We consent to act as statutory auditors/)).toBeVisible();
+
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "Finalize" }).click();
+  await expect(page.getByText("Finalized.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Apply changes" })).toHaveCount(0);
+  await shot(page, "document-final");
+
+  // Back on the tab, the letter is listed as final.
+  await page.getByRole("button", { name: /Back to Client/ }).click();
+  await expect(page.getByRole("region", { name: "Documents made" }).getByText("Final")).toBeVisible();
+});

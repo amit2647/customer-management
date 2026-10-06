@@ -497,6 +497,7 @@ services:
       EMAIL_SERVICE_URL: "http://email-service:${EMAIL_SERVICE_PORT:-4006}"
       ENGAGEMENT_SERVICE_URL: "http://engagement-service:${ENGAGEMENT_SERVICE_PORT:-4009}"
       OBLIGATION_SERVICE_URL: "http://obligation-service:${OBLIGATION_SERVICE_PORT:-4010}"
+      DOCUMENT_SERVICE_URL: "http://document-service:${DOCUMENT_SERVICE_PORT:-4011}"
     depends_on:
       postgres:
         condition: service_healthy
@@ -602,6 +603,7 @@ services:
       DB_PASSWORD: "${DB_PASSWORD:-app_password}"
       JWT_SECRET: "${JWT_SECRET:-omnicore-development-secret-change-this}"
       JWT_ISSUER: "${JWT_ISSUER:-omnicore-identity-service}"
+      BUNDLE_SERVICE_URL: "http://bundle-service:${BUNDLE_SERVICE_PORT:-4008}"
     depends_on:
       postgres:
         condition: service_healthy
