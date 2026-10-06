@@ -54,8 +54,9 @@ key's real source ambiguous. Two consequences: never add `OPENROUTER_*` under th
 `environment:` (entries there override `env_file` and reinstate shell precedence), and because
 `env_file` loads the whole file, the `BOOTSTRAP_*` values are explicitly blanked for that one
 container so the service that talks to an external model is not also holding the seed admin
-password. `VAULT_MASTER_KEY`, `S3_ACCESS_KEY` and `S3_SECRET_KEY` are blanked there for the same
-reason; only vault-service may hold them. Any new secret in `.env` needs the same blanking.
+password. `VAULT_MASTER_KEY`, `S3_ACCESS_KEY`, `S3_SECRET_KEY` and `SERVICE_JWT_SECRET` are blanked there for the same
+reason; only vault-service may hold the first three, and only obligation- and email-service
+the last. Any new secret in `.env` needs the same blanking.
 
 Note the asymmetry: the interpolated variables *are* still shell-overridable, which is normal and
 useful for CI. Only `OPENROUTER_*` is shell-proof.
@@ -417,16 +418,23 @@ release at the end. Rules already decided — keep to them:
   `profileService.js`/`profileRoutes.js`; the original customer code only gained additive
   columns, the archived filter, identifier search and the `extend` hook.
 - lead-service: `PATCH /leads/:id/prospect` moves a lead between the bundle's pipeline columns
-  (never to `Converted` by hand) and keeps quote, next meeting, notes and lead fields. Convert
-  records `converted_customer_id`; the frontend then opens the wizard on that client.
+  (never to `Converted` by hand, never once converted) and keeps quote, next meeting, notes and
+  lead fields. Convert links lead and client (see **Lead conversion**); the frontend then opens
+  the wizard on that client, preselecting the prospect's constitution. The client's Overview
+  shows the prospect it was won from, or offers "Link a prospect" (`ClientOrigin.jsx`).
 - identity-service: `/organizations/current/profile` and `/organizations/current/professionals`
   (one default signatory) — under `/organizations/…` so Kong needed no new route.
-- Frontend: `BundleContext` loads the installed bundle once per sign-in; the sidebar's Customers
-  entry becomes the bundle's word ("Clients") and points at `/clients`, and Prospects appears —
-  only with a bundle. Bundle fields render with react-jsonschema-form through
-  `components/bundle/SchemaForm.jsx` (rjsf 6 keeps option **indexes** as `<select>` values — pick
-  options by label in tests). Not yet possible: showing a field only for some constitutions
-  (needs conditional properties in contract v1).
+- Frontend: `BundleContext` loads the installed bundle once per sign-in (`ready` once the first
+  answer is in); the sidebar's Customers entry becomes the bundle's word ("Clients") and points at
+  `/clients`, and **Prospects replaces Leads** — only with a bundle. Both were views of the same
+  `leads` rows, so a bundle organization has one screen for them: the board, with a Board | List
+  toggle (search, "Show converted"). The `/leads*` and `/customers*` routes sit behind
+  `components/auth/WithoutBundle.jsx`, which with a bundle redirects them to `/prospects` and to
+  each path's `/clients` twin, so dashboard links and the landing fallback follow; it renders
+  nothing until `ready`, so the old screen never flashes. Bundle fields render with
+  react-jsonschema-form through `components/bundle/SchemaForm.jsx` (rjsf 6 keeps option
+  **indexes** as `<select>` values — pick options by label in tests). Not yet possible: showing a
+  field only for some constitutions (needs conditional properties in contract v1).
 
 #### Engagements and fees (M3)
 
@@ -449,6 +457,33 @@ release at the end. Rules already decided — keep to them:
   saved; if it fails, the client page says so and the Engagement tab can add it.
   `components/bundle/EngagementForm.jsx` is shared by the wizard and the Engagement tab.
 
+#### Deadlines and reminders (M4)
+
+- obligation-service owns `obligation_rules` (installed by the `obligations` step; the bundle's
+  rule is stored whole in `definition` and evaluated by bundle-sdk `schedules`),
+  `obligation_overrides` (one extended date per rule and period) and `obligations` (migration
+  016). Overdue / due soon (30 days) / upcoming are derived on read against today in
+  `organizations.time_zone`, never stored.
+- **Deadlines come from engagements**: only services engaged for that year generate items
+  (FIX-15). engagement-service calls `POST /obligations/generate` after every create and
+  update, with the user's token; a failure there is logged, not surfaced, and generating again
+  repairs it. Generation is idempotent (`UNIQUE (customer_id, rule_id, period_key)`), never
+  touches a `filed`/`not_applicable` item, and drops pending generated items a changed
+  engagement no longer produces.
+- An extension moves open deadlines of that period at once; removing it regenerates them.
+- **The service credential.** The reminder runner has no user token, so it signs a short-lived
+  JWT with `SERVICE_JWT_SECRET` (issuer `omnicore-services`, scope `automations.trigger`).
+  email-service accepts it on `POST /emails/automations/trigger` **only**
+  (`authenticateUserOrService.js`), with no permissions. Without the secret the runner stays
+  off. It is a secret like the others: blanked for assistant-service.
+- The runner (hourly, `OBLIGATION_REMINDER_INTERVAL_MS`) raises `obligation.due_soon` (≤ 7
+  days) and `obligation.overdue` (≤ 30 days late) with `dedupe_key
+  obligation:<id>:<kind>`, so each reminder is raised once; whether mail goes out is up to the
+  firm's automations, which install switched off. `POST /obligations/reminders/run`
+  (`obligations.rules`) runs it for the caller's organization now.
+- CA rules exist for GST, TDS, income tax, audits and ROC. Accounting, PF/ESIC and PTRC have
+  none until a practitioner confirms the dates — don't invent them.
+
 ### Email
 
 - An automation sends from its chosen account (`email_account_id`, the form's "Send from"), or
@@ -464,9 +499,24 @@ release at the end. Rules already decided — keep to them:
 
 ### Lead conversion
 
-`POST /api/leads/:id/convert` (lead-service) is the one cross-service write transaction: it creates
-a customer (via customer-service), copies the lead's service mappings, and marks the lead
-`Converted`, committed as a single transaction — see `lead-service/src/services/leadService.js`.
+A lead and the customer it became are **one entity kept by two services**, linked both ways
+(migration 017): `leads.converted_customer_id` points forward, `customers.source_lead_id` points
+back to the lead the customer was *first* won from. Several leads may point at one customer
+(convert reuses a customer with the same email); a lead becomes at most one customer
+(`UNIQUE (organization_id, source_lead_id)`).
+
+`POST /api/leads/:id/convert` (lead-service) is **two writes, not one transaction**: customer-service
+`POST /customers/from-lead` creates the customer (with the lead's services and notes, and
+`leadId`), then lead-service marks the lead `Converted`. What makes it safe is idempotency, not a
+distributed transaction: from-lead returns the customer that already carries that `leadId`, so a
+retry after the second write failed completes onto the same customer. Keep it that way — see
+`lead-service/src/services/leadService.js`.
+
+`POST /api/leads/:id/link` (`leads.update` + `customers.update`) ties an existing customer to a lead
+the same way, in the same order (customer-service `PUT /customers/:id/source-lead` first): for
+customers won before conversions were recorded. A customer keeps its first lead; a lead already
+tied to another customer is refused (409). Once converted, a prospect is history: the board's
+`PATCH /leads/:id/prospect` answers 409.
 
 ### Frontend
 
@@ -478,6 +528,9 @@ a customer (via customer-service), copies the lead's service mappings, and marks
   other `src/api/*.js` files are thin per-resource wrappers around it. `VITE_` is the only prefix
   Vite exposes to browser code, and the value is read when the dev server starts — changing it
   needs the frontend container restarted, it is not read per request.
+- The container runs the Vite **dev server** (`npm start`); `npm run build` is `vite build`, a
+  production bundle used only to check the code compiles (it was plain `vite` until 2026-10-06,
+  which started a dev server and never exited).
 - `src/archieve/` exists in the tree (that's the actual directory name, not a typo to fix
   incidentally) — check whether code there is still referenced before assuming it's dead.
 - Routes are permission-gated with `components/auth/RequirePermission.jsx` inside `ProtectedRoute`,
@@ -513,5 +566,15 @@ a customer (via customer-service), copies the lead's service mappings, and marks
 - Dashboard figures are built from the caller's own view of leads, customers and services, so its
   Redis cache key includes which of those the caller can read (`readScope`). A key by
   organization alone once served a Dashboard-only grant an admin's figures and lead names.
+  Figures are cached 30 s, so any edit shows within half a minute. **Service demand** counts open
+  leads and customers, never a converted lead: it is the same entity as its customer, whose
+  services are the current truth (counting both once showed a one-service client as three).
 - Page chrome (breadcrumb, header, cards) is defined **per page** in `styles/`, not shared — when
   adding a screen, expect to copy a block rather than find a generic rule.
+- **New screens follow `frontend/docs/ui-style-guide.md`** — read it before building one. It
+  maps each kind of screen to its reference (Dashboard, Clients, client detail, the Add client
+  and Add prospect wizards, Deadline rules) and lists what to reuse. Five shared components in
+  `src/components/ui/` — `Breadcrumb`, `StatCard`, `WizardSteps`, `ServicePicker`, `PageState` —
+  render the existing classes (no CSS of their own); everything else is CSS classes. Rule: a
+  multi-line block pasted a third time becomes a `components/ui/` component; one-line class
+  usages stay classes. When the guide and a reference screen disagree, the screen wins.

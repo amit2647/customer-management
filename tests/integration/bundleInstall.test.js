@@ -50,14 +50,14 @@ describe("an organization without a bundle", () => {
 });
 
 describe("the bundle registry", () => {
-  test("offers CA Practice 0.3.0 to an administrator", async () => {
+  test("offers CA Practice 0.4.0 to an administrator", async () => {
     const { status, body } = await api("GET", "/bundles", { token: admin });
 
     assert.equal(status, 200);
 
     const ca = body.bundles.find((bundle) => bundle.key === "ca-practice");
 
-    assert.equal(ca.version, "0.3.0");
+    assert.equal(ca.version, "0.4.0");
     assert.equal(ca.contents.services, 12);
     assert.deepEqual(ca.contents.roles, ["Partner", "Audit Manager", "Article Assistant", "Accounts Executive"]);
   });
@@ -84,7 +84,7 @@ describe("installing CA Practice", () => {
     assert.equal(body.bundle.status, "installed");
     assert.deepEqual(
       body.bundle.steps.map((step) => [step.step, step.status]),
-      [["permissions", "done"], ["roles", "done"], ["catalog", "done"], ["engagementTypes", "done"], ["email", "done"]],
+      [["permissions", "done"], ["roles", "done"], ["catalog", "done"], ["engagementTypes", "done"], ["obligations", "done"], ["email", "done"]],
     );
   });
 
@@ -195,7 +195,7 @@ describe("an install that fails part-way", () => {
     assert.equal(progress.body.bundle.status, "failed");
     assert.deepEqual(
       progress.body.bundle.steps.map((step) => [step.step, step.status]),
-      [["permissions", "done"], ["roles", "done"], ["catalog", "failed"], ["engagementTypes", "pending"], ["email", "pending"]],
+      [["permissions", "done"], ["roles", "done"], ["catalog", "failed"], ["engagementTypes", "pending"], ["obligations", "pending"], ["email", "pending"]],
     );
 
     // Not installed yet, so the organization still works as before.
@@ -211,7 +211,7 @@ describe("an install that fails part-way", () => {
     assert.equal(body.bundle.status, "installed");
     assert.deepEqual(
       body.bundle.steps.map((step) => [step.step, step.attempts]),
-      [["permissions", 1], ["roles", 1], ["catalog", 2], ["engagementTypes", 1], ["email", 1]],
+      [["permissions", 1], ["roles", 1], ["catalog", 2], ["engagementTypes", 1], ["obligations", 1], ["email", 1]],
     );
   });
 });

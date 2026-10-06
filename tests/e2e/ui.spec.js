@@ -274,6 +274,13 @@ test("a profession bundle is installed from Settings", async ({ page }) => {
 // ---------------------------------------------------------------------------
 
 const unique = (label) => `${label} ${Date.now().toString(36)}`;
+// A wizard's Continue, one step at a time: a click while a step is still
+// changing can be lost.
+const continueTo = async (page, step) => {
+  await page.getByRole("button", { name: /Continue/ }).click();
+  await expect(page.getByText(`STEP 0${step}`)).toBeVisible();
+};
+
 const pickOption = async (page, label, optionText) => {
   const select = page.getByLabel(label);
   const value = await select.locator("option", { hasText: optionText }).first().getAttribute("value");
@@ -353,8 +360,11 @@ test("a prospect moves along the board and converts into a client", async ({ pag
 
   await page.getByRole("button", { name: "+ Add prospect" }).click();
   await page.getByLabel("Name").fill(name);
+  await continueTo(page, 2);
+  await continueTo(page, 3);
   await page.getByLabel("Quoted fee").fill("45000");
   await page.getByLabel("Next meeting").fill("2026-10-20");
+  await continueTo(page, 4);
   await page.getByRole("button", { name: "Add prospect", exact: true }).click();
 
   const leads = page.getByRole("region", { name: "Leads" });
@@ -434,4 +444,124 @@ test("a client's first engagement carries its fees, and a payment settles them",
   await expect(page.getByText("Fully paid")).toBeVisible();
   await expect(page.getByText(/UTR-0042/)).toBeVisible();
   await shot(page, "client-fees");
+});
+
+// Milestone M4 — deadlines, after the CA install.
+test("a client's deadlines show on its Compliance tab and in the firm-wide feed", async ({ page, request }) => {
+  const login = await request.post(`${API}/auth/login`, { data: ADMIN });
+  const headers = { Authorization: `Bearer ${(await login.json()).token}` };
+
+  // A client engaged for GST returns and ITR in the current year.
+  const name = unique("Mehta Exports");
+  const services = await (await request.get(`${API}/services`, { headers })).json();
+  const serviceId = (key) => services.find((service) => service.key === key).id;
+  const { current } = await (await request.get(`${API}/engagements/periods?type=annual`, { headers })).json();
+
+  const created = await request.post(`${API}/customers`, { headers, data: { name, profile: { attributes: { constitution: "proprietorship" } } } });
+  expect(created.status()).toBe(201);
+  const customerId = (await created.json()).id;
+
+  const engaged = await request.post(`${API}/engagements`, {
+    headers,
+    data: { customerId, typeKey: "annual", period: current, lines: [{ serviceId: serviceId("gst_returns") }, { serviceId: serviceId("itr") }] },
+  });
+  expect(engaged.status()).toBe(201);
+
+  await prepare(page);
+  await signIn(page);
+  await page.goto(`/clients/${customerId}`);
+
+  await page.getByRole("tab", { name: "Compliance" }).click();
+  const compliance = page.getByRole("tabpanel", { name: "Compliance" });
+  await expect(compliance.getByText("0/24 done")).toBeVisible();
+  await expect(compliance.getByText("0/1 done")).toBeVisible();
+
+  const itr = compliance.getByLabel(/Status of Income tax return/i);
+  await itr.selectOption("filed");
+  await expect(compliance.getByText("1/1 done")).toBeVisible();
+  await shot(page, "client-compliance");
+
+  await page.getByRole("link", { name: "Deadlines" }).click();
+  await expect(page.getByRole("heading", { name: "Deadlines" })).toBeVisible();
+  await page.getByRole("group", { name: "Deadlines by state" }).getByRole("button", { name: /Completed/ }).click();
+  const feed = page.getByRole("region", { name: "Deadlines" });
+  await expect(feed.getByRole("button", { name: new RegExp(name) }).first()).toBeVisible();
+  await shot(page, "deadlines-feed");
+
+  // A deadline in the feed opens its client on the Compliance tab.
+  await feed.getByRole("button", { name: new RegExp(name) }).first().click();
+  await expect(page.getByRole("tabpanel", { name: "Compliance" })).toBeVisible();
+
+  await page.goto("/settings/deadlines");
+  await expect(page.getByRole("heading", { name: "Deadline rules" })).toBeVisible();
+  await expect(page.getByLabel("GSTR-1 active")).toBeChecked();
+  await shot(page, "deadline-rules");
+});
+
+// Before M5 — one screen for leads, and a prospect and its client as one.
+test("with a bundle, Prospects and Clients replace Leads and Customers, and a converted prospect follows its client", async ({ page }) => {
+  await prepare(page);
+  await signIn(page);
+
+  // The Leads list is gone from the navigation, and its URL lands on the board.
+  await expect(page.getByRole("link", { name: "Leads", exact: true })).toHaveCount(0);
+  await page.goto("/leads");
+  await expect(page).toHaveURL(/\/prospects$/);
+
+  // Likewise the Customers screens: each lands on its Clients twin.
+  await page.goto("/customers/new");
+  await expect(page).toHaveURL(/\/clients\/new$/);
+  await page.goto("/prospects");
+
+  const name = unique("Desai Holdings");
+
+  // Adding a prospect is a wizard of its own, like adding a client.
+  await page.getByRole("button", { name: "+ Add prospect" }).click();
+  await expect(page).toHaveURL(/\/prospects\/new$/);
+  const form = page.getByRole("form", { name: "Prospect" });
+  await form.getByLabel("Name").fill(name);
+  await form.getByLabel("Constitution").selectOption({ label: "Proprietorship" });
+  await continueTo(page, 2);
+  await page.getByRole("button", { name: /Income Tax Return/ }).click();
+  await shot(page, "prospect-wizard-services");
+  await continueTo(page, 3);
+  await form.getByLabel("Quoted fee").fill("38000");
+  await form.getByLabel("Notes").fill("Referred by Mehta Exports");
+  await continueTo(page, 4);
+  await expect(form.getByText("Income Tax Return")).toBeVisible();
+  await shot(page, "prospect-form");
+  await page.getByRole("button", { name: "Add prospect", exact: true }).click();
+
+  // The same prospects as a list.
+  await page.getByRole("group", { name: "View" }).getByRole("button", { name: "List" }).click();
+  const list = page.getByRole("region", { name: "Prospect list" });
+  await page.getByLabel("Search prospects").fill(name);
+  await expect(list.getByText(name)).toBeVisible();
+  await shot(page, "prospects-list");
+
+  // Convert: the wizard starts from what the prospect stage learned.
+  page.once("dialog", (dialog) => dialog.accept());
+  await list.locator("tr", { hasText: name }).getByRole("button", { name: "Convert" }).click();
+  await expect(page.getByText("Converted from a prospect")).toBeVisible();
+  await expect(page.getByLabel(/Constitution/).locator("option:checked")).toHaveText("Proprietorship");
+  await shot(page, "prospect-onboarding-prefilled");
+
+  for (let step = 2; step <= 5; step += 1) {
+    await continueTo(page, step);
+  }
+  await page.getByRole("button", { name: /^Update / }).click();
+
+  // The client shows the prospect it was won from.
+  const origin = page.getByRole("region", { name: "Won from prospect" });
+  await expect(origin.getByText("₹38,000")).toBeVisible();
+  await expect(origin.getByText("Referred by Mehta Exports")).toBeVisible();
+  await shot(page, "client-won-from-prospect");
+
+  // And the prospect, listed as converted, leads back to it.
+  await page.goto("/prospects");
+  await page.getByRole("group", { name: "View" }).getByRole("button", { name: "List" }).click();
+  await page.getByLabel("Show converted").check();
+  await page.getByLabel("Search prospects").fill(name);
+  await page.getByRole("region", { name: "Prospect list" }).getByRole("link", { name: "Open client" }).click();
+  await expect(page.getByRole("heading", { name: new RegExp(name) })).toBeVisible();
 });
