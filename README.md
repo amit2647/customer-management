@@ -687,7 +687,8 @@ An organization without a bundle sees exactly today's product.
 | Before M5 | Done — with a bundle, **Prospects** is the one screen for leads (Board or List, with converted prospects on request), and a prospect and the client it became are linked both ways: the client shows what the prospect stage learned, a retried conversion never makes a second client, and older clients can be linked to their prospect by hand |
 | M5 Documents | Done — the client **Documents** tab (a tile per letter for the year, faded with the reason when it does not apply), a letter editor with the firm's fixed details, pre-filled fields and a live print preview, drafts and finalize (with UDIN), and **Settings → Document templates** to write the firm's own text as a new version. The eight CA letters ship as skeletons awaiting the firm's wording |
 | M6 Vault and files | Done — per client, the **Credentials** tab (nine CA portals; passwords encrypted per organization, shown only after a reveal with a recorded reason) and the **Files** tab (uploads to SeaweedFS, always downloaded as attachments); credentials wait for the signed consent and power of attorney; a purge removes the files too |
-| M7–M8 | Assistant/dashboard/import, release |
+| M7 Assistant, dashboard, CSV | Done — the assistant answers deadline, client-profile and engagement questions and proposes status changes, payments and letters for confirmation (never anything in the vault), and searches the bundle's help; the Dashboard's top row becomes four CA figures (clients, open prospects, overdue and in-progress deadlines); Clients exports and imports CSV (bank numbers masked; duplicate PANs skipped) |
+| M8 | Prove the contract, release |
 
 ```bash
 cd bundle-sdk && npx bundle-lint test/fixtures/valid-bundle

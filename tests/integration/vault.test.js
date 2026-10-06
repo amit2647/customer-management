@@ -141,7 +141,8 @@ describe("credentials (CD-10, FIX-02)", () => {
     const data = JSON.parse(text.split("\n").filter((line) => line.startsWith("data:")).map((line) => line.slice(5)).join("") || text);
     const names = data.result.tools.map((tool) => tool.name).join(" ");
 
-    assert.equal(/vault|credential|password|portal|file/i.test(names), false, names);
+    // Whole words of a tool name: "profile" is not a file.
+    assert.equal(names.split(/[\s_]+/).some((word) => /^(vault|credentials?|passwords?|portals?|files?)$/i.test(word)), false, names);
   });
 
   test("the power of attorney lists only the portals the client has credentials for (FIX-22)", async () => {

@@ -521,6 +521,11 @@ test("with a bundle, Prospects and Clients replace Leads and Customers, and a co
   const form = page.getByRole("form", { name: "Prospect" });
   await form.getByLabel("Name").fill(name);
   await form.getByLabel("Constitution").selectOption({ label: "Proprietorship" });
+  await form.getByLabel("Source").selectOption("WhatsApp");
+  await continueTo(page, 2);
+  // A step number goes back, and Continue picks up again.
+  await form.getByRole("button", { name: /Contact/ }).click();
+  await expect(form.getByLabel("Source")).toHaveValue("WhatsApp");
   await continueTo(page, 2);
   await page.getByRole("button", { name: /Income Tax Return/ }).click();
   await shot(page, "prospect-wizard-services");
@@ -529,6 +534,7 @@ test("with a bundle, Prospects and Clients replace Leads and Customers, and a co
   await form.getByLabel("Notes").fill("Referred by Mehta Exports");
   await continueTo(page, 4);
   await expect(form.getByText("Income Tax Return")).toBeVisible();
+  await expect(form.getByText("Source: WhatsApp")).toBeVisible();
   await shot(page, "prospect-form");
   await page.getByRole("button", { name: "Add prospect", exact: true }).click();
 
@@ -662,4 +668,39 @@ test("a client's signed consent is uploaded, then a portal password is saved and
   await expect(page.getByText("Gst@2026!e2e")).toBeVisible();
   await expect(page.getByRole("region", { name: "Reveal log" })).toContainText("Filing GSTR-3B for September");
   await shot(page, "client-credentials");
+});
+
+test("with a bundle, the dashboard shows the firm's figures, and clients are imported from a CSV file", async ({ page }) => {
+  await prepare(page);
+  await signIn(page);
+  await page.goto("/dashboard");
+
+  const figures = page.getByRole("region", { name: "Key figures" });
+  await expect(figures.getByRole("link")).toHaveCount(4);
+  for (const label of ["Clients", "Prospects", "Overdue deadlines", "In progress"]) {
+    await expect(figures.getByText(label, { exact: true })).toBeVisible();
+  }
+  await expect(page.getByText("Conversion Rate")).toHaveCount(0);
+  await shot(page, "dashboard-bundle-cards");
+
+  await page.goto("/clients");
+  await page.getByRole("button", { name: "Import CSV" }).click();
+  await expect(page).toHaveURL(/\/clients\/import/);
+
+  const name = unique("Imported Traders");
+  const csv = [
+    "name,constitution,client_type,address,services",
+    `${name},proprietorship,regular,"4 Station Road\nNashik",gst_returns`,
+    `,proprietorship,regular,,`,
+  ].join("\r\n");
+  await page.getByLabel("CSV file").setInputFiles({ name: "clients.csv", mimeType: "text/csv", buffer: Buffer.from(csv) });
+  await page.getByRole("button", { name: "Import", exact: true }).click();
+
+  const report = page.getByRole("region", { name: "Import report" });
+  await expect(report.getByText("1 added · 0 skipped · 1 refused")).toBeVisible();
+  await expect(report.getByText("Name is required")).toBeVisible();
+  await shot(page, "clients-import");
+
+  await page.getByRole("button", { name: "Back to Clients", exact: true }).click();
+  await expect(page.getByText(name)).toBeVisible();
 });

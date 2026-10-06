@@ -372,7 +372,7 @@ release at the end. Rules already decided — keep to them:
 - bundle-service depends on bundle-sdk through a GitHub tarball URL pinned to a commit
   (`codeload.github.com/…/tar.gz/<sha>`): images have no git, so not `github:` shorthand.
 - `POST /bundles/:key/install` (needs `bundles.manage`) runs steps in order — permissions →
-  roles → catalog → email — each a `PUT /<capability path>/bundles/:key/:version` on the
+  roles → catalog → engagementTypes → obligations → documents → vault → email → help — each a `PUT /<capability path>/bundles/:key/:version` on the
   owning service, carrying only its slice and the admin's own token. Each step is idempotent
   and recorded in `bundle_install_steps`; a failed step stops the install (`502`, status
   `failed`), and installing again resumes at that step without re-running finished ones. No
@@ -426,7 +426,8 @@ release at the end. Rules already decided — keep to them:
   columns, the archived filter, identifier search and the `extend` hook.
 - lead-service: `PATCH /leads/:id/prospect` moves a lead between the bundle's pipeline columns
   (never to `Converted` by hand, never once converted) and keeps quote, next meeting, notes and
-  lead fields. Convert links lead and client (see **Lead conversion**); the frontend then opens
+  lead fields. The prospect wizard records the source (`leads.channel`, default Referral), which
+  the Dashboard's Lead Sources counts. Convert links lead and client (see **Lead conversion**); the frontend then opens
   the wizard on that client, preselecting the prospect's constitution. The client's Overview
   shows the prospect it was won from, or offers "Link a prospect" (`ClientOrigin.jsx`).
 - identity-service: `/organizations/current/profile` and `/organizations/current/professionals`
@@ -554,6 +555,42 @@ release at the end. Rules already decided — keep to them:
   answers `{ ok: true }` when nothing has been sent yet (this once corrupted downloads).
 - Documents can read `client.portals` (the portals a client has credentials for), so the CA
   power of attorney lists only those (FIX-22).
+
+#### Assistant, dashboard and CSV (M7)
+
+- **Assistant.** `middleware/withBundle.js` puts `req.auth.bundle` (`key`, `capabilities`,
+  `vocabulary`, or `null`) on every assistant and MCP route, through the copied
+  `bundleContext.js`. A tool may declare `capability` (needs that capability in the installed
+  bundle) or `needsBundle`; `toolsFor(permissions, bundle)` drops them otherwise, so an
+  organization without a bundle has exactly the old catalog. Bundle tools: reads
+  `list_obligations`, `get_client_profile` (no bank accounts), `get_engagement`; confirmed
+  writes `update_obligation_status`, `record_payment`, `generate_document`. **No tool reaches
+  vault-service** — a unit test checks names and run code. The bundle's vocabulary is appended
+  to the system prompt.
+- **Bundle help.** The last install step, `help`, sends the bundle's `knowledge/*.md` to
+  assistant-service (`PUT /assistant/bundles/:key/:version`), stored in `assistant_knowledge`
+  tagged `bundle`. The core knowledge sync only replaces points without that tag, and
+  `search_help` returns core docs plus the caller's own bundle's.
+- **Dashboard (DASH-01).** `GET /bundles/installed` also returns `dashboard` (the bundle's
+  cards). dashboard-service computes them from named queries only — `clients_total`,
+  `clients_with_service` (`params.services`, catalog keys), `obligations_by_state`
+  (`params.state`), `prospects_open` (leads neither converted nor lost; hint: how many are
+  quoted) — filtered by each card's permission. CA ships four: clients, prospects, overdue,
+  in progress, and returns `bundleCards` (`null`
+  without a bundle). With cards the frontend shows them in place of the four core figures;
+  everything below is unchanged. dashboard-service carries the whole `Authorization` header as
+  its "token", while the copied `bundleContext` adds `Bearer ` itself — strip it before calling
+  (a doubled prefix once made every lookup fail quietly and the cards never appeared).
+- **CSV (DATA-03–05, FIX-13)**, customer-service `csvService.js`, bundle organizations only:
+  `GET /customers/import-template.csv`, `GET /customers/export.csv` (`customers.read`) and
+  `POST /customers/import` (`customers.create` + `profiles.update`, a `text/csv` body up to
+  2 MB, 1000 rows). Columns follow the bundle (core fields, client schema fields, identifiers,
+  `services` as `;`-separated keys, three people, one bank account). Export masks account
+  numbers and prefixes `'` to cells a spreadsheet would run as a formula. Import parses real
+  CSV (`csv-parse`; quoted fields may span lines), ignores `//` lines, and sends each row
+  through `validateProfile` and `createCustomer` with the wizard's `extend` hook, each in its
+  own transaction: a duplicate identifier is *skipped*, any other refusal is reported by line.
+  The frontend's page is `/clients/import`.
 ### Email
 
 - An automation sends from its chosen account (`email_account_id`, the form's "Send from"), or

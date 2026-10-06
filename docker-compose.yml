@@ -291,6 +291,8 @@ services:
       LEAD_SERVICE_URL: "http://lead-service:${LEAD_SERVICE_PORT:-4001}"
       CUSTOMER_SERVICE_URL: "http://customer-service:${CUSTOMER_SERVICE_PORT:-4002}"
       SERVICE_SERVICE_URL: "http://service-service:${SERVICE_SERVICE_PORT:-4003}"
+      BUNDLE_SERVICE_URL: "http://bundle-service:${BUNDLE_SERVICE_PORT:-4008}"
+      OBLIGATION_SERVICE_URL: "http://obligation-service:${OBLIGATION_SERVICE_PORT:-4010}"
 
       REDIS_URL: "${REDIS_URL:-redis://redis:6379}"
 
@@ -412,6 +414,10 @@ services:
       DASHBOARD_SERVICE_URL: "http://dashboard-service:${DASHBOARD_SERVICE_PORT:-4005}"
       EMAIL_SERVICE_URL: "http://email-service:${EMAIL_SERVICE_PORT:-4006}"
       IDENTITY_SERVICE_URL: "http://identity-service:${IDENTITY_SERVICE_PORT:-4004}"
+      ENGAGEMENT_SERVICE_URL: "http://engagement-service:${ENGAGEMENT_SERVICE_PORT:-4009}"
+      OBLIGATION_SERVICE_URL: "http://obligation-service:${OBLIGATION_SERVICE_PORT:-4010}"
+      DOCUMENT_SERVICE_URL: "http://document-service:${DOCUMENT_SERVICE_PORT:-4011}"
+      BUNDLE_SERVICE_URL: "http://bundle-service:${BUNDLE_SERVICE_PORT:-4008}"
 
       PUBLIC_APP_URL: "${PUBLIC_APP_URL:-http://localhost:3000}"
 
@@ -499,6 +505,7 @@ services:
       OBLIGATION_SERVICE_URL: "http://obligation-service:${OBLIGATION_SERVICE_PORT:-4010}"
       DOCUMENT_SERVICE_URL: "http://document-service:${DOCUMENT_SERVICE_PORT:-4011}"
       VAULT_SERVICE_URL: "http://vault-service:${VAULT_SERVICE_PORT:-4012}"
+      ASSISTANT_SERVICE_URL: "http://assistant-service:${ASSISTANT_SERVICE_PORT:-4007}"
     depends_on:
       postgres:
         condition: service_healthy
