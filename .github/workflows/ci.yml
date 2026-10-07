@@ -176,3 +176,27 @@ jobs:
             tests/e2e/report
             tests/e2e/results
           if-no-files-found: ignore
+
+  first-run:
+    needs: [unit, migrations, gateway, security]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # A new installation with nothing configured: the setup code from the
+      # migrate log, the setup screen, and setup closing for good.
+      - run: tests/run-first-run.sh
+        env:
+          CI: "true"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: first-run-screenshots
+          path: |
+            tests/e2e/screenshots/setup-*.png
+            tests/e2e/results
+          if-no-files-found: ignore

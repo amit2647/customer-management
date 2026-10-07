@@ -208,10 +208,22 @@ serves traffic.
   one. Write statements re-runnably (`CREATE TABLE IF NOT EXISTS`, `ON CONFLICT DO NOTHING`, and
   `pg_constraint`-guarded `ADD CONSTRAINT`, since Postgres has no `ADD CONSTRAINT IF NOT EXISTS`).
   Never put `DROP`, `TRUNCATE`, `DELETE` or a `password_hash` `UPDATE` in a migration.
-- `seed.js` runs on every start, outside the ledger, so a half-bootstrapped DB self-heals. It
-  resolves the organization by `BOOTSTRAP_ORG_SLUG` (then lowest id, then creates one), creates the
-  admin user only if that email is absent — it never overwrites an existing `password_hash` — grants
-  SUPER_ADMIN membership, and seeds the default services against the *resolved* org id. Demo data
+- `seed.js` runs on every start, outside the ledger, so a half-bootstrapped DB self-heals. **There
+  is no default admin password.** With `BOOTSTRAP_ADMIN_EMAIL` and `BOOTSTRAP_ADMIN_PASSWORD` both
+  set (CI, scripted deployments) it resolves the organization by `BOOTSTRAP_ORG_SLUG` (then lowest
+  id, then creates one), creates the admin user only if that email is absent — it never overwrites
+  an existing `password_hash`, and refuses a new admin whose password is under 12 characters or the
+  retired `ChangeMe123!` — grants SUPER_ADMIN membership, and seeds the default services against
+  the *resolved* org id. Setting only one of the two is an error. With **neither** set and no admin
+  anywhere, it is a **first run**: it prepares a placeholder organization with the default services
+  and email templates (no demo data), stores the hash of a fresh one-time setup code in
+  `install_setup` (migration 020) and prints the code to its log (`[SETUP]`). The app then shows
+  `pages/Setup/SetupPage.jsx` before anything else: identity-service `POST /setup` (public, Kong
+  `/api/setup`; `GET /setup/status`) checks the code (24 h, 10 wrong tries lock it until migrate
+  runs again), names the organization, creates the admin as SUPER_ADMIN and closes setup — refused
+  for good once completed or once any SUPER_ADMIN exists. An install that already has an admin is
+  simply marked set up. `tests/run-first-run.sh` (project `cmfirst`, `docker-compose.firstrun.yml`
+  blanking the test admin) proves it in a browser; CI runs it as the `first-run` job. Demo data
   sits behind `SEED_DEMO_DATA` (default **true** — set `false` for a real deployment): two leads and one customer converted from the
   first, reproducing `convertLead`'s footprint since no column links a lead to its customer. It
   only runs on a database with no leads and no customers. `BOOTSTRAP_*` vars are documented in
@@ -386,6 +398,12 @@ The next release turns the CRM into a shared core plus an installable profession
   while the row is `upgrading`, and a failed upgrade leaves the row `installed` at the old version
   — upgrading again resumes at the failed step (steps are recorded per version). Install refuses
   a newer version over an installed one ("upgrade instead"); nothing goes back a version.
+- **The plain CRM's generic services leave with a bundle.** The seed's defaults (CRM
+  Implementation, Cloud Migration, Data Analytics, IT Support, Consulting) are marked
+  `services.seeded_default` (migration 021, which also backfills unedited ones). The catalog step
+  deletes those nothing references (`lead_services`, `customer_services`, `engagement_lines`,
+  `obligations`) and switches the rest to `Inactive`; a default a bundle adopted (it has a `key`)
+  is left alone. An organization without a bundle keeps them.
 - Every install endpoint uses `src/services/bundleSync.js` (`decide()`: insert / unchanged /
   update / keep) — **copied** into identity-, service- and email-service like the auth
   middleware, with an identical test beside each copy; keep them identical. A pre-existing row

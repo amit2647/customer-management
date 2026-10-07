@@ -16,8 +16,15 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 API="${API_BASE:-http://localhost:${KONG_HOST_PORT:-8080}/api}"
-EMAIL="${ADMIN_EMAIL:-admin@acme.example}"
-PASSWORD="${ADMIN_PASSWORD:-ChangeMe123!}"
+# No built-in login: pass one, or set BOOTSTRAP_ADMIN_* in .env.
+env_value() { grep -E "^$1=" .env 2>/dev/null | head -1 | cut -d= -f2-; }
+EMAIL="${ADMIN_EMAIL:-$(env_value BOOTSTRAP_ADMIN_EMAIL)}"
+PASSWORD="${ADMIN_PASSWORD:-$(env_value BOOTSTRAP_ADMIN_PASSWORD)}"
+
+if [ -z "$EMAIL" ] || [ -z "$PASSWORD" ]; then
+  echo "Set ADMIN_EMAIL and ADMIN_PASSWORD (an admin of the dev stack)." >&2
+  exit 1
+fi
 
 token=$(curl -sf -X POST "$API/auth/login" -H 'Content-Type: application/json' \
   -d "{\"email\":\"$EMAIL\",\"password\":\"$PASSWORD\"}" | python3 -c 'import sys,json;print(json.load(sys.stdin)["token"])')

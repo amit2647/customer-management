@@ -254,3 +254,31 @@ describe("upgrading", () => {
     assert.equal((await api("POST", "/bundles/ca-practice/upgrade", { token: empty.token })).status, 409);
   });
 });
+
+describe("the plain CRM's default services", () => {
+  test("installing a bundle removes the unused ones, switches off one in use, and leaves the firm's own", async () => {
+    const firm = await organizationWithAdmin("CA Firm (defaults)");
+    const defaults = [
+      ["CRM Implementation", "Technology"], ["Cloud Migration", "Cloud"], ["Data Analytics", "Data"], ["IT Support", "Support"], ["Consulting", "Consulting"],
+    ];
+
+    for (const [name, category] of defaults) {
+      sql(`INSERT INTO services (organization_id, name, description, category, status, seeded_default)
+           VALUES (${firm.orgId}, '${name}', 'seeded', '${category}', 'Active', TRUE)`);
+    }
+    sql(`INSERT INTO services (organization_id, name, description, category, status) VALUES (${firm.orgId}, 'Our own advisory', 'the firm made it', 'Advisory', 'Active')`);
+
+    const consulting = sql(`SELECT id FROM services WHERE organization_id = ${firm.orgId} AND name = 'Consulting'`);
+    const client = await api("POST", "/customers", { token: firm.token, body: { name: unique("Existing client"), serviceIds: [Number(consulting)] } });
+    assert.equal(client.status, 201, JSON.stringify(client.body));
+
+    const installed = await api("POST", "/bundles/ca-practice/install", { token: firm.token });
+    assert.equal(installed.status, 200, JSON.stringify(installed.body));
+
+    const left = sql(`SELECT name || ':' || status FROM services WHERE organization_id = ${firm.orgId} AND key IS NULL ORDER BY name`).split("\n");
+    assert.deepEqual(left, ["Consulting:Inactive", "Our own advisory:Active"]);
+    // The client still has the service it took.
+    assert.equal(count(`SELECT count(*) FROM customer_services WHERE service_id = ${consulting}`), 1);
+  });
+});
+

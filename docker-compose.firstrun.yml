@@ -1,0 +1,12 @@
+# A brand-new installation with nothing configured, for tests/run-first-run.sh:
+# applied on top of docker-compose.test.yml, it blanks the admin and
+# organization the test stack otherwise seeds, so migrate prints a one-time
+# setup code and the app opens on the setup screen.
+services:
+  migrate:
+    environment:
+      BOOTSTRAP_ORG_NAME: ""
+      BOOTSTRAP_ORG_SLUG: ""
+      BOOTSTRAP_ADMIN_NAME: ""
+      BOOTSTRAP_ADMIN_EMAIL: ""
+      BOOTSTRAP_ADMIN_PASSWORD: ""

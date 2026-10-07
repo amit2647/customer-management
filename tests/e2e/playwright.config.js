@@ -3,6 +3,8 @@ const { defineConfig, devices } = require("@playwright/test");
 // Driven by tests/run-e2e.sh, which starts the stack and the UI first.
 module.exports = defineConfig({
   testDir: ".",
+  // first-run/ needs a stack with no admin: tests/run-first-run.sh runs it.
+  testIgnore: ["first-run/**"],
   timeout: 60000,
   expect: { timeout: 15000 },
   retries: process.env.CI ? 1 : 0,

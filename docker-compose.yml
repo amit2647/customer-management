@@ -116,8 +116,11 @@ services:
       BOOTSTRAP_ORG_NAME: "${BOOTSTRAP_ORG_NAME:-Acme Corporation}"
       BOOTSTRAP_ORG_SLUG: "${BOOTSTRAP_ORG_SLUG:-acme-corporation}"
       BOOTSTRAP_ADMIN_NAME: "${BOOTSTRAP_ADMIN_NAME:-Admin}"
-      BOOTSTRAP_ADMIN_EMAIL: "${BOOTSTRAP_ADMIN_EMAIL:-admin@acme.example}"
-      BOOTSTRAP_ADMIN_PASSWORD: "${BOOTSTRAP_ADMIN_PASSWORD:-ChangeMe123!}"
+      # No defaults: with neither set, a new install is set up in the browser
+      # with a one-time code printed to this container's log (seed.js).
+      BOOTSTRAP_ADMIN_EMAIL: "${BOOTSTRAP_ADMIN_EMAIL:-}"
+      BOOTSTRAP_ADMIN_PASSWORD: "${BOOTSTRAP_ADMIN_PASSWORD:-}"
+      PUBLIC_APP_URL: "${PUBLIC_APP_URL:-http://localhost:3000}"
       SEED_DEMO_DATA: "${SEED_DEMO_DATA:-true}"
     depends_on:
       postgres:
@@ -251,6 +254,8 @@ services:
       JWT_ISSUER: "${JWT_ISSUER:-omnicore-identity-service}"
       # The installed profession bundle's firm and professional fields.
       BUNDLE_SERVICE_URL: "http://bundle-service:${BUNDLE_SERVICE_PORT:-4008}"
+      # The profession bundle first-run setup installs (empty: the plain CRM).
+      SETUP_BUNDLE: "${SETUP_BUNDLE:-ca-practice}"
       JWT_EXPIRES_IN: "${JWT_EXPIRES_IN:-8h}"
     depends_on:
       postgres:

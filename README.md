@@ -335,6 +335,25 @@ Frontend:
 http://localhost:3000
 ```
 
+### First run: setting up a new installation
+
+There is no default admin login. On a new installation with nothing configured,
+the first visit opens **Set up OmniCore**:
+
+1. **Organization** — its name, time zone and currency.
+2. **Administrator** — your own name, email and password (12+ characters).
+3. **Confirm** — enter the one-time setup code printed on the server:
+
+   ```bash
+   docker compose logs migrate     # look for the [SETUP] block
+   ```
+
+Finishing signs you in as the organization's administrator, and setup closes
+for good. The code works once and expires after 24 hours; `docker compose up
+migrate` prints a new one while setup is still pending. To skip the screen
+(CI, scripted deployments), set `BOOTSTRAP_ADMIN_EMAIL` and
+`BOOTSTRAP_ADMIN_PASSWORD` in `.env` instead.
+
 ---
 
 ## Kong API Gateway
@@ -1241,11 +1260,11 @@ is published to your machine, for debugging only.
 
 | Variable                   | Purpose                                                              |
 | -------------------------- | -------------------------------------------------------------------- |
-| `BOOTSTRAP_ORG_NAME`       | Organization created on an empty database                             |
+| `BOOTSTRAP_ORG_NAME`       | Organization created on an empty database (suggested name at first-run setup) |
 | `BOOTSTRAP_ORG_SLUG`       | Slug used to resolve the organization on every boot                   |
 | `BOOTSTRAP_ADMIN_NAME`     | Display name for the first admin                                      |
-| `BOOTSTRAP_ADMIN_EMAIL`    | First admin user; an existing user is never overwritten               |
-| `BOOTSTRAP_ADMIN_PASSWORD` | Password for that user, on first creation only                        |
+| `BOOTSTRAP_ADMIN_EMAIL`    | First admin user; an existing user is never overwritten. Leave it and the password unset to set up in the browser |
+| `BOOTSTRAP_ADMIN_PASSWORD` | Password for that user, on first creation only; 12+ characters, no default. Set both or neither |
 | `SEED_DEMO_DATA`           | Seeds two leads and one converted customer. Set `false` for real use  |
 
 Demo seeding only runs on a database with no leads and no customers, so it never
