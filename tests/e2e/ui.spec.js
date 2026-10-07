@@ -573,7 +573,7 @@ test("with a bundle, Prospects and Clients replace Leads and Customers, and a co
 });
 
 // Milestone M5 — documents, after the CA install.
-test("a firm writes its own letter text, then a client's letter is drafted and finalized", async ({ page, request }) => {
+test("a firm writes its own letter text, then a client's letter is drafted and finalized", async ({ page, request }, testInfo) => {
   const login = await request.post(`${API}/auth/login`, { data: ADMIN });
   const headers = { Authorization: `Bearer ${(await login.json()).token}` };
 
@@ -594,7 +594,9 @@ test("a firm writes its own letter text, then a client's letter is drafted and f
   await expect(page.getByRole("region", { name: "Templates" }).getByText("Consent and eligibility certificate")).toBeVisible();
   await shot(page, "document-templates");
   await page.getByRole("button", { name: "Consent and eligibility certificate" }).click();
-  await page.getByLabel("Template text").fill("<p>{{firm.name}} · Ref {{fields.reference}}</p><p>We consent to act as statutory auditors of {{client.name}} for FY {{period.label}}.</p><p>{{signatory.name}}</p>");
+  // Different text on each attempt: a retry after this step saved would
+  // otherwise type the saved text again, and Save rightly stays disabled.
+  await page.getByLabel("Template text").fill(`<p>{{firm.name}} · Ref {{fields.reference}}</p><p>We consent to act as statutory auditors of {{client.name}} for FY {{period.label}}.</p><p>{{signatory.name}}</p><p>Attempt ${testInfo.retry + 1}</p>`);
   await page.getByRole("button", { name: "Save as firm's version" }).click();
   await expect(page.getByText("Saved as your firm's version.")).toBeVisible();
   await shot(page, "document-template-editor");
