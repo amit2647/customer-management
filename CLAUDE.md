@@ -63,14 +63,8 @@ useful for CI. Only `OPENROUTER_*` is shell-proof.
 
 ## Running the app
 
-```bash
-docker compose up -d          # build + start everything
-docker compose ps             # check health
-docker compose logs -f <service>   # e.g. lead-service, kong, frontend
-docker compose down           # stop and remove containers + network (volumes persist)
-docker compose up -d --build <service>   # rebuild a single service after code changes
-docker compose up migrate     # re-run migrations alone (idempotent)
-```
+Standard `docker compose` usage (`up -d`, `ps`, `logs -f <service>`, `up -d --build <service>`,
+`down` — volumes persist). `docker compose up migrate` re-runs migrations alone (idempotent).
 
 - Frontend: http://localhost:3000
 - Kong API Gateway (what the frontend talks to): http://localhost:8080/api/...
@@ -141,21 +135,9 @@ Browser -> Frontend (React/Vite, :3000) -> Kong Gateway (:8080) -> backend servi
 
 Kong routes by path prefix (`kong/kong.yml`), stripping the prefix before forwarding:
 
-| Path prefix      | Service            | Port |
-|-------------------|---------------------|------|
-| `/api/leads`      | lead-service        | 4001 |
-| `/api/customers`  | customer-service     | 4002 |
-| `/api/services`   | service-service      | 4003 |
-| `/api/auth`       | identity-service     | 4004 |
-| `/api/dashboard`  | dashboard-service    | 4005 |
-| `/api/emails`     | email-service        | 4006 |
-| `/api/assistant`  | assistant-service    | 4007 |
-| `/api/mcp`        | assistant-service    | 4007 |
-| `/api/bundles`     | bundle-service       | 4008 |
-| `/api/engagements` | engagement-service   | 4009 |
-| `/api/obligations` | obligation-service   | 4010 |
-| `/api/documents`   | document-service     | 4011 |
-| `/api/vault`       | vault-service        | 4012 |
+`/api/<prefix>` maps to each service by name (`/api/leads` → lead-service, … `/api/vault` →
+vault-service; `/api/mcp` → assistant-service), ports 4001–4012 in the order listed under
+**What this is**. `kong/kong.yml` is the authority.
 
 identity-service serves more than `/api/auth`; each of these is a separate Kong entry pointing
 at its own upstream path: `/api/users`, `/api/roles`, `/api/permissions`,
@@ -171,17 +153,10 @@ Every backend service (`lead-service`, `customer-service`, `service-service`, `i
 `email-service`, `dashboard-service`, `assistant-service`) follows the same layout and
 conventions:
 
-```
-src/
-  server.js        # entrypoint: app.listen() — services do NOT touch schema, see Migrations
-  app.js            # express app: cors, json body parsing, requestLogger, /health, routes
-  config/database.js   # pg Pool (or redis client for dashboard-service)
-  middleware/authenticate.js     # verifies JWT (see Auth below)
-  middleware/requirePermission.js
-  routes/*.js
-  controllers/*.js
-  services/*.js     # business logic + SQL queries live here, not in controllers
-```
+`src/server.js` (entrypoint; services do NOT touch schema, see Migrations), `src/app.js` (cors,
+json, requestLogger, `/health`, routes), `config/database.js`, `middleware/authenticate.js` and
+`requirePermission.js`, then `routes/` → `controllers/` → `services/` (business logic and SQL live
+in `services/`).
 
 - No ORM — raw SQL via `pg` (`node-postgres`), built with parameterized queries.
 - All services share **one Postgres database** (`customer_management`) — there's no per-service
@@ -284,63 +259,9 @@ Two conventions worth knowing before editing routes:
 
 ### AI assistant and MCP
 
-`assistant-service` hosts both the in-product assistant (`POST /assistant/chat`) and an MCP server
-(`POST /mcp`, Streamable HTTP) over a **single tool catalog** in
-`src/services/toolCatalog.js`. It holds no business logic and touches no business tables — it reads
-the database only to resolve access grants when authenticating.
-
-- Every tool is an HTTP call onto the owning service carrying the caller's own bearer token, so
-  adding a tool never means duplicating a permission check.
-- Each tool declares a `permission`. `toolsFor(permissions)` filters the catalog **before the model
-  is invoked**, so the assistant has no vocabulary for features the user lacks — that, not the
-  prompt, is what keeps it from offering or discussing them.
-- Settings tools (users, roles, permissions, access grants, organization, email templates,
-  automations, accounts) are **read-only**, each gated on the same permission as the endpoint it
-  calls. They pass results through `pick()` so only the fields that answer a question reach the
-  model provider — e.g. an email account's address, never its SMTP host or username. Do the same
-  for any new tool that reads configuration.
-- Tools marked `write: true` are never executed on the model's say-so. They come back as a
-  `pendingAction` for the user to confirm, and the confirming call re-checks the permission rather
-  than trusting the returned payload.
-- The model is reached through OpenRouter. `OPENROUTER_MAX_TOKENS` is capped (default 1024) because
-  the provider default is far larger and is billed against the account's headroom. With no
-  `OPENROUTER_API_KEY` the assistant returns 503 and nothing else is affected.
-- Conversations are stored server-side (`assistant_conversations`, `assistant_messages`,
-  `assistant_pending_actions`, migration 011) and `conversationService.js` owns all of that SQL.
-  The client sends only `{ clientMessageId, content }`. Tool calls and results are stored and
-  replayed to the model, **filtered to the caller's current tools**, so a revoked permission also
-  withdraws the data it produced.
-- A turn is three steps: a short transaction that takes the conversation's **turn lease** and
-  records the question, the model call with **no transaction open**, then one transaction that
-  commits everything the model produced. Never hold a transaction across the model call.
-- Duplicates are prevented by the schema, not by care: client-generated conversation and message
-  ids (a retry replays the stored answer), `UNIQUE (conversation_id, seq)`, and a confirm that
-  claims its action with `pending → executing`, so a double click runs the write once. A confirm
-  carries no body: the **stored** arguments run, never anything the client sends back.
-
-#### Vector search (Qdrant)
-
-Qdrant is a **derived index; Postgres is the source of truth**. Two collections:
-`assistant_messages` (conversation prose, for history search and recall) and
-`assistant_knowledge` (the Markdown in `assistant-service/knowledge/`, for the `search_help` tool).
-
-- Nothing writes to Qdrant in a request. A message is committed with `embed_status = 'pending'`
-  (migration 012) and `embeddingWorker.js` drains it: claim with `FOR UPDATE SKIP LOCKED`, embed,
-  upsert with `wait=true`, mark done, one Postgres transaction. Point id = message id, so reruns
-  overwrite. Qdrant down → rows stay pending. Resetting `embed_status` to `pending` rebuilds it.
-- **Qdrant only ever supplies ids.** Every hit is re-read from Postgres with organization, user and
-  `deleted_at` checked again (`searchService.js`). Keep it that way — never render payload text
-  from a message point.
-- Only user and assistant prose is embedded, never tool results: those are CRM data under
-  permissions that can be revoked, and a vector copy would outlive the revocation.
-- Embeddings are local (`all-MiniLM-L6-v2` via `@huggingface/transformers`, 384-d). Its ONNX
-  runtime needs glibc, which is why assistant-service is `node:22-slim` rather than Alpine and why
-  its healthcheck uses `node`, not `wget`. The model is fetched at image build; runtime is offline.
-- Help docs carry a `permission:` front-matter; `search_help` filters to the caller's permissions
-  inside the vector search. A tool with `permission: null` is open to everyone, so use that only
-  for a tool that filters by permission itself.
-- `QDRANT_API_KEY` is passed to assistant-service under `environment:` on purpose, so it resolves
-  the same way as in the `qdrant` container. Do not leave it to `env_file`.
+See `assistant-service/CLAUDE.md` (tool catalog, write confirmation, conversation storage, Qdrant
+vector search). Key rule: every tool is an HTTP call onto the owning service with the caller's own
+token, and `toolsFor()` filters the catalog before the model sees it.
 
 ### Profession bundles (in progress on `develop`)
 
@@ -420,220 +341,9 @@ The next release turns the CRM into a shared core plus an installable profession
   CA Practice into the test organization and then exercise the bundle screens — keep new
   bundle browser tests after that install.
 
-#### Client profiles, prospects and the firm (M2)
-
-- Services that need the installed bundle ask bundle-service for it (`GET /bundles/installed`,
-  with the caller's token) through a copied `services/bundleContext.js` (installed bundles cached
-  60 s per organization; "no bundle" never cached), and gate their bundle routes with a copied
-  `middleware/requireBundle.js` → 404 "not enabled" for an organization without one. Copies live
-  in customer-, lead- and identity-service; keep them identical.
-- Bundle rules are evaluated with bundle-sdk everywhere, the browser included: customer-service
-  (`profiles.validate`, `identifiers.check`), lead-service, identity-service, and the frontend,
-  which imports `bundle-sdk/src/conditions` and `/identifiers` so the wizard shows and requires
-  exactly the identifiers the server will. A schema `if` must `require` the field it tests, or it
-  also matches when the field is empty — lint warns.
-- customer-service: the client wizard saves core fields, services and `profile` (attributes,
-  identifiers, people, bank accounts) in **one transaction** — `createCustomer`'s `extend` hook
-  writes the profile before COMMIT, so a refused PAN leaves no half-made client. A duplicate
-  identifier is a 409 naming the client that holds it, archived ones included (the PAN stays
-  taken while archived). Bank account numbers leave the service masked (`•••• 9012`), so an
-  existing client's accounts are only changed one by one through their own endpoints, never
-  resent with the profile. Locked clients need `profiles.lock` for any write (423); archived
-  clients are read-only (409). With a bundle, `DELETE /customers/:id` archives; purge needs
-  `customers.purge` and an archived client. All of this is new code in
-  `profileService.js`/`profileRoutes.js`; the original customer code only gained additive
-  columns, the archived filter, identifier search and the `extend` hook.
-- lead-service: `PATCH /leads/:id/prospect` moves a lead between the bundle's pipeline columns
-  (never to `Converted` by hand, never once converted) and keeps quote, next meeting, notes and
-  lead fields. The prospect wizard records the source (`leads.channel`, default Referral), which
-  the Dashboard's Lead Sources counts. Convert links lead and client (see **Lead conversion**); the frontend then opens
-  the wizard on that client, preselecting the prospect's constitution. The client's Overview
-  shows the prospect it was won from, or offers "Link a prospect" (`ClientOrigin.jsx`).
-- identity-service: `/organizations/current/profile` and `/organizations/current/professionals`
-  (one default signatory) — under `/organizations/…` so Kong needed no new route.
-- Frontend: `BundleContext` loads the installed bundle once per sign-in (`ready` once the first
-  answer is in); the sidebar's Customers entry becomes the bundle's word ("Clients") and points at
-  `/clients`, and **Prospects replaces Leads** — only with a bundle. Both were views of the same
-  `leads` rows, so a bundle organization has one screen for them: the board, with a Board | List
-  toggle (search, "Show converted"). The `/leads*` and `/customers*` routes sit behind
-  `components/auth/WithoutBundle.jsx`, which with a bundle redirects them to `/prospects` and to
-  each path's `/clients` twin, so dashboard links and the landing fallback follow; it renders
-  nothing until `ready`, so the old screen never flashes. Bundle fields render with
-  react-jsonschema-form through `components/bundle/SchemaForm.jsx` (rjsf 6 keeps option
-  **indexes** as `<select>` values — pick options by label in tests). Not yet possible: showing a
-  field only for some constitutions (needs conditional properties in contract v1).
-
-#### Engagements and fees (M3)
-
-- engagement-service owns `engagement_types` (installed from the bundle by the
-  `engagementTypes` install step), `engagements` (one per client per period of a type —
-  `UNIQUE (customer_id, engagement_type_id, period_start)`), `engagement_lines` (services
-  engaged, fee and expenses) and `engagement_payments` (migration 015). Gross, received and
-  balance are computed on read, never stored.
-- Periods come from bundle-sdk `schedules`, generated around **today in
-  `organizations.time_zone`** (`GET /engagements/periods`), never a hard-coded list.
-- Fee amounts are part of an engagement only for `fees.read`; setting them needs `fees.update`.
-  Someone without it may change which services are engaged, and existing fees are carried
-  over, not zeroed. Payments need `fees.read`/`fees.update` and are audited
-  (`payment.recorded`).
-- The install-step route (`PUT /engagements/bundles/:key/:version`) is the one capability route
-  without `requireBundle`: it runs while the install is still in progress.
-- New engagements raise `engagement.created`; email-service's event queue accepts the capability
-  events alongside the core ones.
-- The wizard creates a new client's first engagement as a second request after the client is
-  saved; if it fails, the client page says so and the Engagement tab can add it.
-  `components/bundle/EngagementForm.jsx` is shared by the wizard and the Engagement tab.
-
-#### Deadlines and reminders (M4)
-
-- obligation-service owns `obligation_rules` (installed by the `obligations` step; the bundle's
-  rule is stored whole in `definition` and evaluated by bundle-sdk `schedules`),
-  `obligation_overrides` (one extended date per rule and period) and `obligations` (migration
-  016). Overdue / due soon (30 days) / upcoming are derived on read against today in
-  `organizations.time_zone`, never stored.
-- **Deadlines come from engagements**: only services engaged for that year generate items
-  (FIX-15). engagement-service calls `POST /obligations/generate` after every create and
-  update, with the user's token; a failure there is logged, not surfaced, and generating again
-  repairs it. Generation is idempotent (`UNIQUE (customer_id, rule_id, period_key)`), never
-  touches a `filed`/`not_applicable` item, and drops pending generated items a changed
-  engagement no longer produces.
-- An extension moves open deadlines of that period at once; removing it regenerates them.
-- **The service credential.** The reminder runner has no user token, so it signs a short-lived
-  JWT with `SERVICE_JWT_SECRET` (issuer `omnicore-services`, scope `automations.trigger`).
-  email-service accepts it on `POST /emails/automations/trigger` **only**
-  (`authenticateUserOrService.js`), with no permissions. Without the secret the runner stays
-  off. It is a secret like the others: blanked for assistant-service.
-- The runner (hourly, `OBLIGATION_REMINDER_INTERVAL_MS`) raises `obligation.due_soon` (≤ 7
-  days) and `obligation.overdue` (≤ 30 days late) with `dedupe_key
-  obligation:<id>:<kind>`, so each reminder is raised once; whether mail goes out is up to the
-  firm's automations, which install switched off. `POST /obligations/reminders/run`
-  (`obligations.rules`) runs it for the caller's organization now.
-- CA rules exist for GST, TDS, income tax, audits and ROC. Accounting, PF/ESIC and PTRC have
-  none until a practitioner confirms the dates — don't invent them.
-
-#### Documents (M5)
-
-- document-service owns `document_templates` (installed by the `documents` step) and
-  `generated_documents` (migration 018). **Templates are versioned and never edited in place**:
-  a bundle upgrade or a firm's own edit adds a version and makes it current (one current per
-  key). A document points at the version it was made from (FK `RESTRICT`), is re-rendered only
-  from that version while a draft, and keeps its `rendered_html` once finalized — a later
-  version never changes a letter already issued.
-- Upgrades keep a firm's text (`bundleSync.decide`): untouched templates move to the new bundle
-  text; a firm-edited one stays current, is flagged `update_available_version`, and the newer
-  bundle text is stored beside it as a non-current version so **Restore** can take it.
-- Rendering is bundle-sdk `templates` only: values always escaped, `[Label]` marks for anything
-  missing. `templates.check(body, fields)` is the one set of template rules — bundle-lint runs
-  it on bundle documents and document-service on a firm's edit (parse, known helpers, no
-  `{{{ }}}`, no `<script>`/`<iframe>`/`on…=`/`javascript:`, only the binding roots and the
-  document's own fields). Fields pre-fill from data via `"ui:prefill": "<path>"` in the field's
-  ui (`templates.prefill`); the render context (`contextService.js`) carries exactly the bindings
-  lint allows — `client` (+ identifiers, people, `signatory`), `engagement` for the period
-  (+ `fee_total`, `expenses_total`, `services`), `firm`, `signatory` (the firm's default
-  partner), `fields`, `today`, `period`.
-- **Finalize refuses while any `[placeholder]` remains** or the fields fail their schema, and
-  writes `document.finalized` to `audit_events` (with the optional UDIN). Finals cannot be
-  changed or deleted; drafts can.
-- The frontend shows letters in `components/documents/LetterFrame.jsx`: an iframe with
-  `sandbox="allow-same-origin allow-modals"` (no scripts can run in it; the page can size and
-  print it), letter CSS of its own (0.5 in margins, highlighted gaps kept when printing,
-  favourable/adverse answers in green/red).
-- JSONB does not keep key order, so the service records each template's field order as
-  `ui:order` at install (`withOrder`). A bundle's own `ui:order` wins.
-- Editing a template's text needs `system.settings` (Settings → Document templates); previewing
-  unsaved text through `POST /documents/preview` with a `body` needs it too.
-- **CA letters are skeletons**: every field, condition and pre-fill is wired, but the legal
-  wording is `[Wording: …]` gaps until the firm supplies it — so none can be finalized as
-  shipped. The order letters are offered in is their folder order (`documents/01-…`).
-
-
-#### Vault and files (M6)
-
-- vault-service owns `vault_keys`, `vault_settings`, `portals`, `portal_credentials`,
-  `credential_reveals` and `client_files` (migration 019); file bytes live in SeaweedFS.
-- **Envelope encryption** (`keyService.js`): `VAULT_MASTER_KEY` (32 bytes, base64; only
-  vault-service holds it) wraps one random data key per organization; each credential's secret
-  fields are AES-256-GCM under it, with additional data naming organization, client and portal,
-  so a ciphertext moved to another row does not decrypt. **Without a valid key the vault
-  refuses (503)** rather than storing weakly. **Back up `VAULT_MASTER_KEY`**: losing it makes
-  every stored password unreadable. The test stack sets a fixed public test key
-  (`docker-compose.test.yml`), so the suite never touches the real one.
-- Secrets leave the service in one place only: `POST …/reveal` (`vault.reveal`, a reason of at
-  least five characters, rate limited, `Cache-Control: no-store`), recorded in
-  `credential_reveals` (plain ids, outlives a purge) and `audit_events`. Listings return the
-  fields that are not secret and `hasSecret`. A secret left blank on save keeps the stored one.
-  **No credential is saved until the bundle's consent file category (CA:
-  `consent_poa_signed`) is on file**, and that file cannot be deleted while credentials rely on
-  it. The assistant has no vault tool, and `VAULT_MASTER_KEY`/`S3_*` are blanked for it.
-- Files: uploads are multipart, capped at 25 MB (Kong's `request-size-limiting` refuses larger
-  bodies first), hashed (sha256) and stored under a random key `org/<id>/<uuid>`; downloads are
-  always `attachment` with `nosniff` and `application/octet-stream`. A purge sets
-  `client_files.customer_id` NULL; the sweeper (every `VAULT_SWEEP_INTERVAL_MS`, or
-  `POST /vault/files/sweep`) deletes the object, then the row.
-- A route that streams must finish streaming before it returns: the shared `respond()` wrapper
-  answers `{ ok: true }` when nothing has been sent yet (this once corrupted downloads).
-- Documents can read `client.portals` (the portals a client has credentials for), so the CA
-  power of attorney lists only those (FIX-22).
-
-#### Assistant, dashboard and CSV (M7)
-
-- **Assistant.** `middleware/withBundle.js` puts `req.auth.bundle` (`key`, `capabilities`,
-  `vocabulary`, or `null`) on every assistant and MCP route, through the copied
-  `bundleContext.js`. A tool may declare `capability` (needs that capability in the installed
-  bundle) or `needsBundle`; `toolsFor(permissions, bundle)` drops them otherwise, so an
-  organization without a bundle has exactly the old catalog. Bundle tools: reads
-  `list_obligations`, `get_client_profile` (no bank accounts), `get_engagement`; confirmed
-  writes `update_obligation_status`, `record_payment`, `generate_document`. **No tool reaches
-  vault-service** — a unit test checks names and run code. The bundle's vocabulary is appended
-  to the system prompt.
-- **Bundle help.** The last install step, `help`, sends the bundle's `knowledge/*.md` to
-  assistant-service (`PUT /assistant/bundles/:key/:version`), stored in `assistant_knowledge`
-  tagged `bundle`. The core knowledge sync only replaces points without that tag, and
-  `search_help` returns core docs plus the caller's own bundle's.
-- **Dashboard (DASH-01).** `GET /bundles/installed` also returns `dashboard` (the bundle's
-  cards). dashboard-service computes them from named queries only — `clients_total`,
-  `clients_with_service` (`params.services`, catalog keys), `obligations_by_state`
-  (`params.state`), `prospects_open` (leads neither converted nor lost; hint: how many are
-  quoted) — filtered by each card's permission. CA ships four: clients, prospects, overdue,
-  in progress, and returns `bundleCards` (`null`
-  without a bundle). With cards the frontend shows them in place of the four core figures;
-  everything below is unchanged. dashboard-service carries the whole `Authorization` header as
-  its "token", while the copied `bundleContext` adds `Bearer ` itself — strip it before calling
-  (a doubled prefix once made every lookup fail quietly and the cards never appeared).
-- **CSV (DATA-03–05, FIX-13)**, customer-service `csvService.js`, bundle organizations only:
-  `GET /customers/import-template.csv`, `GET /customers/export.csv` (`customers.read`) and
-  `POST /customers/import` (`customers.create` + `profiles.update`, a `text/csv` body up to
-  2 MB, 1000 rows). Columns follow the bundle (core fields, client schema fields, identifiers,
-  `services` as `;`-separated keys, three people, one bank account). Export masks account
-  numbers and prefixes `'` to cells a spreadsheet would run as a formula. Import parses real
-  CSV (`csv-parse`; quoted fields may span lines), ignores `//` lines, and sends each row
-  through `validateProfile` and `createCustomer` with the wizard's `extend` hook, each in its
-  own transaction: a duplicate identifier is *skipped*, any other refusal is reported by line.
-  The frontend's page is `/clients/import`.
-#### Customized items and the second bundle (M8)
-
-- **Accept or keep, per item.** An upgrade keeps a firm's edit and flags it; Settings →
-  Profession Bundle → *Customized items* (`BundleCustomized.jsx`) lists every item the firm
-  edited that the installed version ships differently — only the differing fields, the firm's
-  beside the bundle's — with **Accept new** / **Keep mine**. bundle-service
-  (`customizedService.js`, `GET`/`POST /bundles/installed/customized`, `bundles.manage`) adds
-  no rules of its own: it calls each editable step's **own install endpoint** at the installed
-  version — `?dryRun=1` to list (the install runs in its transaction, reports the `customized`
-  items it kept, and rolls back), then once more with `accept` or `dismiss: ["kind:key"]` for
-  the choice. Audited as `bundle.item_accepted` / `bundle.item_kept`.
-- `bundleSync.decide(existing, shipped, { accept, dismiss })`: accept turns a keep into an
-  update; dismiss keeps the firm's row and sets its `source_checksum` to the shipped one, so it
-  is flagged again only when a later version changes that item. `choicesOf(req)` /
-  `optionsFor()` read the request. Still identical in all seven copies. Accepting an email
-  automation never switches it on; accepting a document template adds the bundle's text as the
-  current version (the firm's stays in the history).
-- **A second profession proves the contract.** `tests/fixtures/bundles/legal-practice` (matters
-  per calendar year, a court portal, its own namespace `law`) is mounted into the **test**
-  stack's registry by `docker-compose.test.yml` and never shipped; `tests/integration/contract.test.js`
-  installs it, runs a matter through deadlines, letters, the vault and the dashboard, checks every
-  offered bundle for conformance (installs fully, reinstall adds nothing, nothing customized),
-  and walks an upgrade through keep / retire / accept / keep mine. A new bundle should pass that
-  file unchanged.
+Milestone detail (M2 client profiles … M8 customized items: per-service behaviour, routes,
+pitfalls) lives in the `profession-bundles` skill (`.claude/skills/profession-bundles/SKILL.md`)
+— load it before working on any bundle capability.
 
 ### Email
 
@@ -671,61 +381,4 @@ tied to another customer is refused (409). Once converted, a prospect is history
 
 ### Frontend
 
-- React + Vite + React Router, plain CSS (`src/styles/`, organized by foundation/layout/components/
-  features/pages — no CSS framework/CSS-in-JS).
-- `src/api/client.js` is the single fetch wrapper: base URL from
-  `import.meta.env.VITE_API_BASE_URL` (Kong), falling back to `http://localhost:8080/api`. It
-  attaches `Authorization: Bearer <token>` from `localStorage` (`omnicore_access_token`). All
-  other `src/api/*.js` files are thin per-resource wrappers around it. `VITE_` is the only prefix
-  Vite exposes to browser code, and the value is read when the dev server starts — changing it
-  needs the frontend container restarted, it is not read per request.
-- The container runs the Vite **dev server** (`npm start`); `npm run build` is `vite build`, a
-  production bundle used only to check the code compiles (it was plain `vite` until 2026-10-06,
-  which started a dev server and never exited).
-- `src/archieve/` exists in the tree (that's the actual directory name, not a typo to fix
-  incidentally) — check whether code there is still referenced before assuming it's dead.
-- Routes are permission-gated with `components/auth/RequirePermission.jsx` inside `ProtectedRoute`,
-  so a screen someone lacks denies honestly instead of mounting and showing an empty page. The
-  sidebar hides the link separately; both are cosmetic — the API is the authority.
-- The assistant's conversation lives in `context/AssistantContext.jsx`, above `AppLayout`, so the
-  docked panel and the `/assistant` page share one thread. `AssistantThread.jsx` is the shared UI;
-  the panel and page are chrome only.
-- Assistant replies are rendered as Markdown (`react-markdown` + `remark-gfm`). `rehype-raw` is
-  deliberately absent: model output is untrusted, so raw HTML stays escaped.
-- The assistant is reachable from a header button and a sidebar entry above Settings. Neither is
-  permission-gated, matching the route and the backend.
-- The assistant's status orb is `thinking-orbs` (MIT, zero dependencies, a transparent 2D canvas).
-  Its state is derived **once**, as `state` in `AssistantContext` (`idle` / `listening` /
-  `processing` / `responding` / `confirming`), so the orb and its caption cannot disagree.
-  `AssistantOrb.jsx` maps those onto the library's own animations. It does **not** use the
-  `<ThinkingOrb>` component: `MorphOrb` draws with the library's engine (`thinking-orbs/engine` —
-  `resolvePreset`, `MODE_FRAMES`, `paintFrame`) so it can do two things the component cannot:
-  - **Draw at real size.** The component sizes its canvas to the preset, so enlarging it meant
-    stretching a 64px raster. The frames are pure vector geometry, so they are painted through a
-    scaled context at the CSS size instead; `--orb-scale` is a real size, not a stretch.
-  - **Morph between states.** The component restarts on a state change. `blend()` moves each
-    dot of the old frame to a dot of the new one over `MORPH_MS`.
-  - Still true of the library: `size`/`base` is `64 | 32 | 20` — tuned designs, and
-    `resolvePreset` throws above 64. Dark ink vs light ink is pinned from `ThemeContext`, since
-    our theme names are not `dark|light`.
-  - The canvas is transparent. Never give an orb selector a background, border or shadow — it
-    shows as a plate behind the dots instead of letting the glass through.
-- The assistant's glass (`backdrop-filter`) is scoped to `.assistant-panel` and
-  `.assistant-page-card` only, with separate fills for the light and dark themes. The shared glass
-  rule must **not** set `position`: the panel is `position: fixed`, and a `relative` in that
-  shared block once unpinned it from the corner (same specificity, later in the file).
-- Dashboard figures are built from the caller's own view of leads, customers and services, so its
-  Redis cache key includes which of those the caller can read (`readScope`). A key by
-  organization alone once served a Dashboard-only grant an admin's figures and lead names.
-  Figures are cached 30 s, so any edit shows within half a minute. **Service demand** counts open
-  leads and customers, never a converted lead: it is the same entity as its customer, whose
-  services are the current truth (counting both once showed a one-service client as three).
-- Page chrome (breadcrumb, header, cards) is defined **per page** in `styles/`, not shared — when
-  adding a screen, expect to copy a block rather than find a generic rule.
-- **New screens follow `frontend/docs/ui-style-guide.md`** — read it before building one. It
-  maps each kind of screen to its reference (Dashboard, Clients, client detail, the Add client
-  and Add prospect wizards, Deadline rules) and lists what to reuse. Five shared components in
-  `src/components/ui/` — `Breadcrumb`, `StatCard`, `WizardSteps`, `ServicePicker`, `PageState` —
-  render the existing classes (no CSS of their own); everything else is CSS classes. Rule: a
-  multi-line block pasted a third time becomes a `components/ui/` component; one-line class
-  usages stay classes. When the guide and a reference screen disagree, the screen wins.
+See `frontend/CLAUDE.md`. New screens follow `frontend/docs/ui-style-guide.md`.

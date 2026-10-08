@@ -112,6 +112,23 @@ test("the account menu leads to My Profile", async ({ page }) => {
   await shot(page, "profile");
 });
 
+// One checkbox design in every theme: the role editor's permission grid sits in
+// a form card, whose input rule once stretched checkboxes like text fields.
+for (const theme of ["lemon", "mint"]) {
+  test(`checkboxes keep their shape in the ${theme} theme`, async ({ page }) => {
+    await prepare(page, theme);
+    await signIn(page);
+    await page.goto("/settings/roles/new");
+
+    const first = page.getByRole("region", { name: /permissions/i }).getByRole("checkbox").nth(1);
+    await first.check();
+    const box = await first.boundingBox();
+    expect(Math.round(box.width)).toBe(16);
+    expect(Math.round(box.height)).toBe(16);
+    await shot(page, `checkboxes-${theme}`);
+  });
+}
+
 test("a screen without permission says so", async ({ page, request }) => {
   const login = await request.post(`${API}/auth/login`, { data: ADMIN });
   const { token } = await login.json();
@@ -253,7 +270,8 @@ test("a profession bundle is installed from Settings", async ({ page }) => {
   await signIn(page);
   await page.goto("/settings");
 
-  await page.getByRole("button", { name: /Profession Bundle/ }).click();
+  // Settings opens on Profile; the bundle is under the Practice tab.
+  await page.getByRole("navigation", { name: "Settings" }).getByRole("link", { name: "Practice" }).click();
   await expect(page.getByRole("heading", { name: /CA Practice/ })).toBeVisible();
   await expect(page.getByText("12 services and 2 packages")).toBeVisible();
   await shot(page, "bundle-offer");
@@ -291,8 +309,8 @@ test("with a bundle, the navigation says Clients and offers the prospect board",
   await prepare(page);
   await signIn(page);
 
-  await expect(page.getByRole("link", { name: "Clients" })).toHaveAttribute("href", "/clients");
-  await expect(page.getByRole("link", { name: "Prospects" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Clients", exact: true })).toHaveAttribute("href", "/clients");
+  await expect(page.getByRole("link", { name: "Prospects", exact: true })).toBeVisible();
 });
 
 test("the client wizard adds a company with its CIN, director and bank account", async ({ page }) => {
@@ -387,7 +405,10 @@ test("the firm's FRN and signing partner are set in Settings", async ({ page }) 
   await signIn(page);
   await page.goto("/settings");
 
-  await page.getByRole("button", { name: /^⌂?\s*Firm/ }).click();
+  await page.getByRole("navigation", { name: "Settings" }).getByRole("link", { name: "Organization" }).click();
+  await shot(page, "settings-organization");
+  await page.getByRole("navigation", { name: "Organization sections" }).getByRole("link", { name: "Firm" }).click();
+  await page.getByRole("button", { name: "Edit firm details" }).click();
   await page.getByLabel("Legal name").fill("Rao & Co LLP");
   await page.getByLabel(/Firm registration number/).fill("123456W");
   await page.getByRole("button", { name: "Save firm" }).click();
@@ -400,6 +421,7 @@ test("the firm's FRN and signing partner are set in Settings", async ({ page }) 
   await page.getByRole("button", { name: "Save partner" }).click();
 
   await expect(page.getByText("Default signatory", { exact: true }).first()).toBeVisible();
+  await expect(page.getByRole("region", { name: "Firm details" })).toContainText("Rao & Co LLP");
   await shot(page, "firm-settings");
 });
 
@@ -475,6 +497,11 @@ test("a client's deadlines show on its Compliance tab and in the firm-wide feed"
   const compliance = page.getByRole("tabpanel", { name: "Compliance" });
   await expect(compliance.getByText("0/24 done")).toBeVisible();
   await expect(compliance.getByText("0/1 done")).toBeVisible();
+
+  // 25 deadlines page past the first screen: the service card narrows the
+  // grid to the income tax return, as a user would.
+  await compliance.getByRole("button", { name: /Income Tax Return/ }).click();
+  await expect(compliance.getByRole("group", { name: "Service filter" })).toBeVisible();
 
   const itr = compliance.getByLabel(/Status of Income tax return/i);
   await itr.selectOption("filed");

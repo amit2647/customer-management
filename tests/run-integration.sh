@@ -29,6 +29,12 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# Start from empty volumes: a run that was killed before its trap fired
+# (a stopped terminal, a closed session) leaves this project's database
+# behind, and `up` would reuse it — the browser suite's CA install then
+# showed up in the integration suite's bundle-free organization.
+"${COMPOSE[@]}" down -v --remove-orphans >/dev/null 2>&1
+
 echo "==> Building and starting the $PROJECT stack"
 "${COMPOSE[@]}" up -d --build || exit 1
 
