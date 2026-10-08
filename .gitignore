@@ -1,2 +1,6 @@
 .env
 handoff.md
+
+# Claude Code: personal settings and the test hook (machine-specific paths)
+.claude/settings.local.json
+.claude/hooks/
