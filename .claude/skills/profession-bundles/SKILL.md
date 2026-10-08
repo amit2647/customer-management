@@ -127,7 +127,7 @@ The rules and the install/upgrade model are in the root `CLAUDE.md` (**Professio
   favourable/adverse answers in green/red).
 - JSONB does not keep key order, so the service records each template's field order as
   `ui:order` at install (`withOrder`). A bundle's own `ui:order` wins.
-- Editing a template's text needs `system.settings` (Settings → Document templates); previewing
+- Editing a template's text needs `system.settings` (Documents → a letter → Edit); previewing
   unsaved text through `POST /documents/preview` with a `body` needs it too.
 - **CA letters are skeletons**: every field, condition and pre-fill is wired, but the legal
   wording is `[Wording: …]` gaps until the firm supplies it — so none can be finalized as
@@ -221,4 +221,27 @@ The rules and the install/upgrade model are in the root `CLAUDE.md` (**Professio
   offered bundle for conformance (installs fully, reinstall adds nothing, nothing customized),
   and walks an upgrade through keep / retire / accept / keep mine. A new bundle should pass that
   file unchanged.
+
+## Services own their deadlines and letters
+
+- Every service has a permanent `key`: bundle services from the catalog,
+  firm-made ones from their name when created (service-service `uniqueKey`;
+  migration 022 backfilled the rest). Seeded defaults stay keyless on purpose:
+  the catalog step clears out keyless defaults.
+- Deadline rules attach to services by key. A firm adds and edits them on the
+  service page (Services → a service → Deadlines), through obligation-service
+  `POST/PUT/DELETE /obligations/rules[/:key]` (`obligations.rules`). Each rule is
+  checked by bundle-sdk `checkRule` (the contract, the organization's service
+  keys, a one-year dry run) and the engagements using that service regenerate,
+  so open deadlines move and filed ones never do. A bundle rule is edited or
+  switched off, never deleted (an upgrade would bring it back); editing it
+  makes it the firm's version at the next upgrade through `bundleSync`.
+- The editor (`components/services/RuleForm.jsx`, `ruleTiming.js`) shows
+  periodic rules with an optional `{ engaged: <service> }` condition and
+  `else`; anything else (relative, manual, other conditions) shows "Set by
+  bundle".
+- Letters live under **Documents** (top-level, `documents.read`), with what
+  each is offered for; `GET /documents/templates` reports `services` and
+  `needs`. A service's Letters tab lists the letters whose condition names it.
+  Settings → **Update** holds only the profession bundle.
 

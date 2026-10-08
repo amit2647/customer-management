@@ -167,6 +167,58 @@ describe("the feed and statuses (COMP-02–05, CD-07)", () => {
   });
 });
 
+describe("a firm's own services and deadlines (the service screen)", () => {
+  test("a service the firm adds gets a key, and a deadline on it reaches engaged clients", async () => {
+    const created = await api("POST", "/services", { token: firm.token, body: { name: unique("Payroll Review"), category: "Payroll" } });
+    assert.equal(created.status, 201, JSON.stringify(created.body));
+    assert.match(created.body.key, /^payroll_review_/);
+
+    const rule = await api("POST", "/obligations/rules", {
+      token: firm.token,
+      body: { serviceKey: created.body.key, name: "Payroll review", frequency: "quarterly", schedule: { day: 15, offsetMonths: 1 } },
+    });
+    assert.equal(rule.status, 200, JSON.stringify(rule.body));
+    assert.equal(rule.body.bundle_key, null);
+
+    const id = await client();
+    const engagement = await api("POST", "/engagements", {
+      token: firm.token,
+      body: { customerId: id, typeKey: "annual", period: years.current, lines: [{ serviceId: created.body.id }] },
+    });
+    assert.equal(engagement.status, 201, JSON.stringify(engagement.body));
+
+    const feed = await deadlines(id);
+    const items = byRule(feed, rule.body.key);
+    assert.equal(items.length, 4, "one per quarter");
+    assert.ok(items.every((item) => item.due_on.slice(8, 10) === "15"));
+  });
+
+  test("changing a bundle deadline's date moves open deadlines at once", async () => {
+    const id = await client();
+    await engage(id, ["gst_returns"]);
+    const before = byRule(await deadlines(id), "gstr1");
+    assert.ok(before.length > 0);
+
+    const changed = await api("PUT", "/obligations/rules/gstr1", { token: firm.token, body: { name: "GSTR-1", frequency: "monthly", schedule: { day: 13, offsetMonths: 1 } } });
+    assert.equal(changed.status, 200, JSON.stringify(changed.body));
+
+    const after = byRule(await deadlines(id), "gstr1");
+    assert.ok(after.filter((item) => item.status !== "filed").every((item) => item.due_on.slice(8, 10) === "13"));
+
+    // Back as shipped, so the other suites see the bundle's date.
+    await api("PUT", "/obligations/rules/gstr1", { token: firm.token, body: { name: "GSTR-1", frequency: "monthly", schedule: { day: 11, offsetMonths: 1 } } });
+  });
+
+  test("a rule bundle-sdk refuses is not saved, and a bundle rule cannot be deleted", async () => {
+    const bad = await api("POST", "/obligations/rules", { token: firm.token, body: { serviceKey: "no_such_service", name: "X", frequency: "yearly", schedule: { date: "09-30" } } });
+    assert.equal(bad.status, 400);
+    assert.match(bad.body.error, /not in the catalog/);
+
+    const removed = await api("DELETE", "/obligations/rules/gstr1", { token: firm.token });
+    assert.equal(removed.status, 409);
+  });
+});
+
 describe("extensions (FIX-20)", () => {
   test("an extension moves open deadlines of that year, and removing it moves them back", async () => {
     const id = await client();

@@ -11,7 +11,8 @@ const API = process.env.API_BASE || "http://localhost:18080/api";
 const ADMIN = { email: "admin@test.example", password: "Test-Admin-123!", name: "Test Admin" };
 const THEMES = ["lemon", "cobalt", "mint", "coral"];
 
-const shot = (page, name) => page.screenshot({ path: `screenshots/${name}.png`, fullPage: false });
+// Animations jump to their end, so a dialog caught fading in shows as it settles.
+const shot = (page, name) => page.screenshot({ path: `screenshots/${name}.png`, fullPage: false, animations: "disabled" });
 
 async function prepare(page, theme = "lemon") {
   // Skip the one-time onboarding; pin the theme under test.
@@ -270,8 +271,8 @@ test("a profession bundle is installed from Settings", async ({ page }) => {
   await signIn(page);
   await page.goto("/settings");
 
-  // Settings opens on Profile; the bundle is under the Practice tab.
-  await page.getByRole("navigation", { name: "Settings" }).getByRole("link", { name: "Practice" }).click();
+  // Settings opens on Profile; the bundle is under the Update tab.
+  await page.getByRole("navigation", { name: "Settings" }).getByRole("link", { name: "Update" }).click();
   await expect(page.getByRole("heading", { name: /CA Practice/ })).toBeVisible();
   await expect(page.getByText("12 services and 2 packages")).toBeVisible();
   await shot(page, "bundle-offer");
@@ -519,10 +520,24 @@ test("a client's deadlines show on its Compliance tab and in the firm-wide feed"
   await feed.getByRole("button", { name: new RegExp(name) }).first().click();
   await expect(page.getByRole("tabpanel", { name: "Compliance" })).toBeVisible();
 
-  await page.goto("/settings/deadlines");
-  await expect(page.getByRole("heading", { name: "Deadline rules" })).toBeVisible();
+  // A service's deadlines live on its page: the bundle's, and one the firm adds.
+  await page.getByRole("link", { name: "Services", exact: true }).click();
+  await page.getByRole("link", { name: "GST Returns", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "GST Returns" })).toBeVisible();
+  await page.getByRole("tab", { name: "Deadlines" }).click();
   await expect(page.getByLabel("GSTR-1 active")).toBeChecked();
-  await shot(page, "deadline-rules");
+  await shot(page, "service-deadlines");
+
+  const deadline = unique("GST health check");
+  await page.getByRole("button", { name: "Add deadline" }).click();
+  const editor = page.getByRole("form", { name: "New deadline for GST Returns" });
+  await editor.getByLabel("Name").fill(deadline);
+  await editor.getByRole("radio", { name: "Yearly" }).check({ force: true });
+  await expect(editor.getByText("Yearly, 30 Sep after the year")).toBeVisible();
+  await shot(page, "service-deadline-editor");
+  await editor.getByRole("button", { name: "Add deadline" }).click();
+  await expect(page.getByText("Deadline added. Engaged clients have it now.")).toBeVisible();
+  await expect(page.getByRole("region", { name: "GST Returns deadlines" }).getByText(deadline)).toBeVisible();
 });
 
 // Before M5 — one screen for leads, and a prospect and its client as one.
@@ -616,9 +631,10 @@ test("a firm writes its own letter text, then a client's letter is drafted and f
   await prepare(page);
   await signIn(page);
 
-  // Settings → Document templates: the firm's own wording for the consent letter.
-  await page.goto("/settings/documents");
+  // Documents: every letter, what each is offered for, and the firm's own wording.
+  await page.getByRole("link", { name: "Documents", exact: true }).click();
   await expect(page.getByRole("region", { name: "Templates" }).getByText("Consent and eligibility certificate")).toBeVisible();
+  await expect(page.getByRole("region", { name: "Templates" }).getByText("Statutory Audit engaged").first()).toBeVisible();
   await shot(page, "document-templates");
   await page.getByRole("button", { name: "Consent and eligibility certificate" }).click();
   // Different text on each attempt: a retry after this step saved would
