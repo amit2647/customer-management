@@ -4,3 +4,9 @@ handoff.md
 # Claude Code: personal settings and the test hook (machine-specific paths)
 .claude/settings.local.json
 .claude/hooks/
+
+# graft's local graph cache — regenerable, not committed (run `graft build`).
+/graft/
+
+# graft's local repository settings — not committed.
+/.graft/
