@@ -688,6 +688,12 @@ services:
       KONG_PROXY_ERROR_LOG: /dev/stderr
       KONG_ADMIN_ERROR_LOG: /dev/stderr
       KONG_ADMIN_LISTEN: "0.0.0.0:8001"
+      # Kong caches upstream DNS. With its defaults it trusts Docker's 600 s
+      # record TTL and then serves a stale answer for another hour, so a
+      # recreated container with a new IP got 502s until Kong was restarted.
+      KONG_DNS_VALID_TTL: "${KONG_DNS_VALID_TTL:-5}"
+      KONG_DNS_STALE_TTL: "${KONG_DNS_STALE_TTL:-0}"
+      KONG_DNS_NOT_FOUND_TTL: "${KONG_DNS_NOT_FOUND_TTL:-5}"
     volumes:
       - ./kong/kong.yml:/kong/declarative/kong.yml:ro
     ports:
