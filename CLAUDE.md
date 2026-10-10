@@ -56,7 +56,9 @@ key's real source ambiguous. Two consequences: never add `OPENROUTER_*` under th
 container so the service that talks to an external model is not also holding the seed admin
 password. `VAULT_MASTER_KEY`, `S3_ACCESS_KEY`, `S3_SECRET_KEY` and `SERVICE_JWT_SECRET` are blanked there for the same
 reason; only vault-service may hold the first three, and only obligation- and email-service
-the last. Any new secret in `.env` needs the same blanking.
+the last. `HYDRA_SECRETS_SYSTEM`, `HYDRA_DB_PASSWORD` and `OAUTH_CLIENT_SECRET` are blanked too:
+the first two belong to Hydra (and the `migrate` runner, which creates Hydra's role), the last
+to identity-service only. Any new secret in `.env` needs the same blanking.
 
 Note the asymmetry: the interpolated variables *are* still shell-overridable, which is normal and
 useful for CI. Only `OPENROUTER_*` is shell-proof.
@@ -226,6 +228,17 @@ serves traffic.
   time, not re-fetched.
 - Multi-tenancy: rows are scoped by `organization_id`, derived from `req.auth.organizationId`, not
   from client-supplied input.
+- **Moving to Ory Hydra (in progress, phases P0–P7, plan in
+  `~/.claude/plans/auth-hardening-hydra.md`).** Hydra (`hydra`, config `hydra/hydra.yml`;
+  `hydra-migrate` sets up its own `hydra` database, which the `migrations` runner creates) issues
+  RS256 access tokens and refresh tokens; it has no login screen and no users. The frontend's
+  `/login` is its login page, and identity-service tells it who signed in, keeps the users,
+  and registers the `omnicore-web` client on boot (`src/services/oauthClient.js`). Kong routes
+  only Hydra's public side (`/oauth2/`, `/.well-known/`, `/userinfo`); **the admin port 4445 is
+  never routed or published**. Lists, booleans and hooks only work in `hydra.yml`, not as
+  environment variables. `HYDRA_SERVE_FLAGS` defaults to `--dev` for the http localhost issuer;
+  a real deployment needs an HTTPS issuer without it. Until P2 lands, the bullets above still
+  describe the token every service accepts.
 
 #### Just-in-time access and guests
 
