@@ -10,3 +10,6 @@ handoff.md
 
 # graft's local repository settings — not committed.
 /.graft/
+
+# Local sample files (client CSV, letters) used for manual testing — not committed.
+/samples/
