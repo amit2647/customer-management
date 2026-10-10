@@ -1,0 +1,12 @@
+# Ory Hydra policy that is the same in every deployment. Values that differ
+# per deployment (URLs, secrets, lifetimes, the database) come from .env
+# through docker-compose.yml's `hydra` environment.
+#
+# Settings that are lists, booleans or hooks belong here, not in environment
+# variables: in Hydra v26.2.0 OAUTH2_PKCE_ENFORCED=true was silently ignored,
+# and OAUTH2_TOKEN_HOOK=<url> is rejected at start-up (spike, auth-hardening P0).
+
+oauth2:
+  # Every authorization-code flow must use PKCE (S256; Hydra refuses `plain`).
+  pkce:
+    enforced: true

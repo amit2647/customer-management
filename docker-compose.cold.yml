@@ -24,6 +24,12 @@ services:
   migrate:
     container_name: !reset null
 
+  hydra-migrate:
+    container_name: !reset null
+
+  hydra:
+    container_name: !reset null
+
   service-service:
     container_name: !reset null
     ports: !reset []

@@ -122,9 +122,75 @@ services:
       BOOTSTRAP_ADMIN_PASSWORD: "${BOOTSTRAP_ADMIN_PASSWORD:-}"
       PUBLIC_APP_URL: "${PUBLIC_APP_URL:-http://localhost:3000}"
       SEED_DEMO_DATA: "${SEED_DEMO_DATA:-true}"
+      # Hydra's own database and role, created before the ledger (hydra.js).
+      HYDRA_DB_NAME: "${HYDRA_DB_NAME:-hydra}"
+      HYDRA_DB_USER: "${HYDRA_DB_USER:-hydra}"
+      HYDRA_DB_PASSWORD: "${HYDRA_DB_PASSWORD:-hydra_development_password}"
     depends_on:
       postgres:
         condition: service_healthy
+
+  # Ory Hydra (Apache-2.0): OAuth 2.1 / OpenID Connect tokens, signing keys
+  # and sessions. Auth-hardening P0: it runs, but nothing signs in through it
+  # yet; P1 moves login onto it. It has no login screen or user table of its
+  # own - it sends the browser to ours, and identity-service says who the user
+  # is.
+  #
+  # Its database and role are created by `migrate` (migrations/hydra.js);
+  # `hydra-migrate` then creates Hydra's own tables, idempotently.
+  hydra-migrate:
+    image: oryd/hydra:v26.2.0
+    container_name: customer-management-hydra-migrate
+    restart: "no"
+    command: migrate sql -e --yes
+    environment:
+      DSN: "postgres://${HYDRA_DB_USER:-hydra}:${HYDRA_DB_PASSWORD:-hydra_development_password}@${DB_HOST:-postgres}:${DB_PORT:-5432}/${HYDRA_DB_NAME:-hydra}?sslmode=disable"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  # Public API (4444) is reached only through Kong: /oauth2/*, /.well-known/*,
+  # /userinfo. The admin API (4445) can create clients and accept logins, so
+  # it is never published and never routed; only identity-service calls it,
+  # on the Docker network.
+  hydra:
+    image: oryd/hydra:v26.2.0
+    container_name: customer-management-hydra
+    restart: unless-stopped
+    # --dev allows the plain-http issuer and redirect URLs of a local stack.
+    # A deployment behind HTTPS sets HYDRA_SERVE_FLAGS to empty.
+    command: serve all -c /etc/config/hydra/hydra.yml ${HYDRA_SERVE_FLAGS---dev}
+    environment:
+      DSN: "postgres://${HYDRA_DB_USER:-hydra}:${HYDRA_DB_PASSWORD:-hydra_development_password}@${DB_HOST:-postgres}:${DB_PORT:-5432}/${HYDRA_DB_NAME:-hydra}?sslmode=disable"
+      # Encrypts Hydra's data at rest. Like JWT_SECRET, a development default
+      # keeps a fresh clone booting; a real deployment sets its own.
+      SECRETS_SYSTEM: "${HYDRA_SECRETS_SYSTEM:-omnicore-development-hydra-secret-change-this}"
+      # The public URL, through Kong. Tokens carry it as `iss`.
+      URLS_SELF_ISSUER: "http://localhost:${KONG_HOST_PORT:-8080}/"
+      # P1: our login page (the frontend) and identity-service's consent route.
+      # Nothing sends anyone here yet, so they may 404 until then.
+      URLS_LOGIN: "${PUBLIC_APP_URL:-http://localhost:3000}/login"
+      URLS_CONSENT: "http://localhost:${KONG_HOST_PORT:-8080}/api/auth/consent"
+      URLS_LOGOUT: "http://localhost:${KONG_HOST_PORT:-8080}/api/auth/logout"
+      # Signed JWT access tokens (verified per request against Hydra's JWKS in P1).
+      STRATEGIES_ACCESS_TOKEN: "jwt"
+      TTL_ACCESS_TOKEN: "${HYDRA_TTL_ACCESS_TOKEN:-5m}"
+      TTL_REFRESH_TOKEN: "${HYDRA_TTL_REFRESH_TOKEN:-720h}"
+      # No anonymous usage reporting to Ory.
+      SQA_OPT_OUT: "true"
+    # Policy that is the same everywhere (PKCE, later the token hook and the
+    # top-level claims). See the file for why those are not env vars.
+    volumes:
+      - ./hydra/hydra.yml:/etc/config/hydra/hydra.yml:ro
+    depends_on:
+      hydra-migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:4444/health/ready || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 5s
 
   service-service:
     build:
@@ -257,6 +323,13 @@ services:
       # The profession bundle first-run setup installs (empty: the plain CRM).
       SETUP_BUNDLE: "${SETUP_BUNDLE:-ca-practice}"
       JWT_EXPIRES_IN: "${JWT_EXPIRES_IN:-8h}"
+      # Its own OAuth client in Hydra, upserted on boot through the admin API
+      # (src/services/oauthClient.js). Only this service holds the client
+      # secret or reaches the admin API.
+      HYDRA_ADMIN_URL: "http://hydra:4445"
+      OAUTH_CLIENT_ID: "${OAUTH_CLIENT_ID:-omnicore-web}"
+      OAUTH_CLIENT_SECRET: "${OAUTH_CLIENT_SECRET:-omnicore-development-oauth-secret-change-this}"
+      OAUTH_REDIRECT_URI: "http://localhost:${KONG_HOST_PORT:-8080}/api/auth/callback"
     depends_on:
       postgres:
         condition: service_healthy
@@ -447,6 +520,10 @@ services:
       S3_ACCESS_KEY: ""
       S3_SECRET_KEY: ""
       SERVICE_JWT_SECRET: ""
+      # Hydra's secrets: Hydra and migrate (database), identity-service (client).
+      HYDRA_SECRETS_SYSTEM: ""
+      HYDRA_DB_PASSWORD: ""
+      OAUTH_CLIENT_SECRET: ""
       BOOTSTRAP_ORG_NAME: ""
       BOOTSTRAP_ORG_SLUG: ""
 
@@ -720,6 +797,8 @@ services:
       document-service:
         condition: service_started
       vault-service:
+        condition: service_started
+      hydra:
         condition: service_started
 
   frontend:

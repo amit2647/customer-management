@@ -34,6 +34,18 @@ services:
       BOOTSTRAP_ADMIN_PASSWORD: "Test-Admin-123!"
       SEED_DEMO_DATA: "true"
 
+  hydra-migrate:
+    container_name: !reset null
+
+  # The issuer and redirect URLs follow this stack's gateway port.
+  hydra:
+    container_name: !reset null
+    environment:
+      URLS_SELF_ISSUER: "http://localhost:${TEST_KONG_PORT:-18080}/"
+      URLS_LOGIN: "http://localhost:${TEST_UI_PORT:-13000}/login"
+      URLS_CONSENT: "http://localhost:${TEST_KONG_PORT:-18080}/api/auth/consent"
+      URLS_LOGOUT: "http://localhost:${TEST_KONG_PORT:-18080}/api/auth/logout"
+
   service-service:
     container_name: !reset null
     ports: !reset []
@@ -49,6 +61,8 @@ services:
   identity-service:
     container_name: !reset null
     ports: !reset []
+    environment:
+      OAUTH_REDIRECT_URI: "http://localhost:${TEST_KONG_PORT:-18080}/api/auth/callback"
 
   dashboard-service:
     container_name: !reset null
