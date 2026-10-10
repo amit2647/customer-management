@@ -17,6 +17,12 @@ COMPOSE=(docker compose -p "$PROJECT" -f docker-compose.yml -f docker-compose.te
 
 export TEST_KONG_PORT="${FIRST_RUN_KONG_PORT:-28080}"
 export TEST_UI_PORT="${FIRST_RUN_UI_PORT:-23000}"
+
+# Hydra's issuer, the OAuth redirect and the app every service and cookie
+# refers to are derived from these, so they follow this stack's own ports
+# (shell exports win over .env in compose interpolation).
+export KONG_HOST_PORT="$TEST_KONG_PORT"
+export PUBLIC_APP_URL="http://localhost:${TEST_UI_PORT:-13000}"
 export TEST_FAKE_MODEL_PORT="${FIRST_RUN_FAKE_MODEL_PORT:-28099}"
 export TEST_MAIL_PORT="${FIRST_RUN_MAIL_PORT:-28025}"
 export TEST_GREENMAIL_SMTP_PORT="${FIRST_RUN_GREENMAIL_SMTP_PORT:-23025}"

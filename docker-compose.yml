@@ -176,6 +176,10 @@ services:
       STRATEGIES_ACCESS_TOKEN: "jwt"
       TTL_ACCESS_TOKEN: "${HYDRA_TTL_ACCESS_TOKEN:-5m}"
       TTL_REFRESH_TOKEN: "${HYDRA_TTL_REFRESH_TOKEN:-720h}"
+      # The token hook (declared in hydra.yml): identity-service rebuilds the
+      # claims on every refresh. Its URL and shared secret come from here.
+      OAUTH2_TOKEN_HOOK_URL: "http://identity-service:${IDENTITY_SERVICE_PORT:-4004}/internal/token-hook"
+      OAUTH2_TOKEN_HOOK_AUTH_CONFIG_VALUE: "${TOKEN_HOOK_SECRET:-omnicore-development-token-hook-secret-change-this}"
       # No anonymous usage reporting to Ory.
       SQA_OPT_OUT: "true"
     # Policy that is the same everywhere (PKCE, later the token hook and the
@@ -207,6 +211,9 @@ services:
       DB_PASSWORD: "${DB_PASSWORD:-app_password}"
       JWT_SECRET: "${JWT_SECRET:-omnicore-development-secret-change-this}"
       JWT_ISSUER: "${JWT_ISSUER:-omnicore-identity-service}"
+      # Hydra's RS256 tokens (auth hardening P1): its keys and issuer.
+      HYDRA_JWKS_URL: "http://hydra:4444/.well-known/jwks.json"
+      HYDRA_ISSUER: "http://localhost:${KONG_HOST_PORT:-8080}/"
     depends_on:
       postgres:
         condition: service_healthy
@@ -239,6 +246,9 @@ services:
       DB_PASSWORD: "${DB_PASSWORD:-app_password}"
       JWT_SECRET: "${JWT_SECRET:-omnicore-development-secret-change-this}"
       JWT_ISSUER: "${JWT_ISSUER:-omnicore-identity-service}"
+      # Hydra's RS256 tokens (auth hardening P1): its keys and issuer.
+      HYDRA_JWKS_URL: "http://hydra:4444/.well-known/jwks.json"
+      HYDRA_ISSUER: "http://localhost:${KONG_HOST_PORT:-8080}/"
       SERVICE_SERVICE_URL: "http://service-service:${SERVICE_SERVICE_PORT:-4003}"
       EMAIL_SERVICE_URL: "http://email-service:${EMAIL_SERVICE_PORT:-4006}"
       # The installed profession bundle's schemas and rules.
@@ -277,6 +287,9 @@ services:
       DB_PASSWORD: "${DB_PASSWORD:-app_password}"
       JWT_SECRET: "${JWT_SECRET:-omnicore-development-secret-change-this}"
       JWT_ISSUER: "${JWT_ISSUER:-omnicore-identity-service}"
+      # Hydra's RS256 tokens (auth hardening P1): its keys and issuer.
+      HYDRA_JWKS_URL: "http://hydra:4444/.well-known/jwks.json"
+      HYDRA_ISSUER: "http://localhost:${KONG_HOST_PORT:-8080}/"
       CUSTOMER_SERVICE_URL: "http://customer-service:${CUSTOMER_SERVICE_PORT:-4002}"
       SERVICE_SERVICE_URL: "http://service-service:${SERVICE_SERVICE_PORT:-4003}"
       EMAIL_SERVICE_URL: "http://email-service:${EMAIL_SERVICE_PORT:-4006}"
@@ -318,6 +331,9 @@ services:
       DB_PASSWORD: "${DB_PASSWORD:-app_password}"
       JWT_SECRET: "${JWT_SECRET:-omnicore-development-secret-change-this}"
       JWT_ISSUER: "${JWT_ISSUER:-omnicore-identity-service}"
+      # Hydra's RS256 tokens (auth hardening P1): its keys and issuer.
+      HYDRA_JWKS_URL: "http://hydra:4444/.well-known/jwks.json"
+      HYDRA_ISSUER: "http://localhost:${KONG_HOST_PORT:-8080}/"
       # The installed profession bundle's firm and professional fields.
       BUNDLE_SERVICE_URL: "http://bundle-service:${BUNDLE_SERVICE_PORT:-4008}"
       # The profession bundle first-run setup installs (empty: the plain CRM).
@@ -330,6 +346,15 @@ services:
       OAUTH_CLIENT_ID: "${OAUTH_CLIENT_ID:-omnicore-web}"
       OAUTH_CLIENT_SECRET: "${OAUTH_CLIENT_SECRET:-omnicore-development-oauth-secret-change-this}"
       OAUTH_REDIRECT_URI: "http://localhost:${KONG_HOST_PORT:-8080}/api/auth/callback"
+      # Sign-in through Hydra: the token and revoke endpoints (internal), the
+      # app to return to, and the refresh cookie. Secure needs HTTPS, so it is
+      # off for the plain-http local stack.
+      HYDRA_PUBLIC_URL: "http://hydra:4444"
+      PUBLIC_APP_URL: "${PUBLIC_APP_URL:-http://localhost:3000}"
+      AUTH_COOKIE_SECURE: "${AUTH_COOKIE_SECURE:-false}"
+      HYDRA_TTL_REFRESH_TOKEN: "${HYDRA_TTL_REFRESH_TOKEN:-720h}"
+      # Hydra's token hook presents this; only Hydra and this service hold it.
+      TOKEN_HOOK_SECRET: "${TOKEN_HOOK_SECRET:-omnicore-development-token-hook-secret-change-this}"
     depends_on:
       postgres:
         condition: service_healthy
@@ -365,6 +390,9 @@ services:
 
       JWT_SECRET: "${JWT_SECRET:-omnicore-development-secret-change-this}"
       JWT_ISSUER: "${JWT_ISSUER:-omnicore-identity-service}"
+      # Hydra's RS256 tokens (auth hardening P1): its keys and issuer.
+      HYDRA_JWKS_URL: "http://hydra:4444/.well-known/jwks.json"
+      HYDRA_ISSUER: "http://localhost:${KONG_HOST_PORT:-8080}/"
 
       LEAD_SERVICE_URL: "http://lead-service:${LEAD_SERVICE_PORT:-4001}"
       CUSTOMER_SERVICE_URL: "http://customer-service:${CUSTOMER_SERVICE_PORT:-4002}"
@@ -421,6 +449,9 @@ services:
       # JWT
       JWT_SECRET: "${JWT_SECRET:-omnicore-development-secret-change-this}"
       JWT_ISSUER: "${JWT_ISSUER:-omnicore-identity-service}"
+      # Hydra's RS256 tokens (auth hardening P1): its keys and issuer.
+      HYDRA_JWKS_URL: "http://hydra:4444/.well-known/jwks.json"
+      HYDRA_ISSUER: "http://localhost:${KONG_HOST_PORT:-8080}/"
       # Accepted on the automation trigger route only, from background services.
       SERVICE_JWT_SECRET: "${SERVICE_JWT_SECRET:-omnicore-development-service-secret-change-this}"
 
@@ -483,6 +514,9 @@ services:
 
       JWT_SECRET: "${JWT_SECRET:-omnicore-development-secret-change-this}"
       JWT_ISSUER: "${JWT_ISSUER:-omnicore-identity-service}"
+      # Hydra's RS256 tokens (auth hardening P1): its keys and issuer.
+      HYDRA_JWKS_URL: "http://hydra:4444/.well-known/jwks.json"
+      HYDRA_ISSUER: "http://localhost:${KONG_HOST_PORT:-8080}/"
 
       # Every tool is a call onto one of these, made with the signed-in user's
       # own token, so each service applies its usual permission checks.
@@ -520,10 +554,12 @@ services:
       S3_ACCESS_KEY: ""
       S3_SECRET_KEY: ""
       SERVICE_JWT_SECRET: ""
-      # Hydra's secrets: Hydra and migrate (database), identity-service (client).
+      # Hydra's secrets: Hydra and migrate (database), identity-service (client,
+      # token hook).
       HYDRA_SECRETS_SYSTEM: ""
       HYDRA_DB_PASSWORD: ""
       OAUTH_CLIENT_SECRET: ""
+      TOKEN_HOOK_SECRET: ""
       BOOTSTRAP_ORG_NAME: ""
       BOOTSTRAP_ORG_SLUG: ""
 
@@ -578,6 +614,9 @@ services:
       DB_PASSWORD: "${DB_PASSWORD:-app_password}"
       JWT_SECRET: "${JWT_SECRET:-omnicore-development-secret-change-this}"
       JWT_ISSUER: "${JWT_ISSUER:-omnicore-identity-service}"
+      # Hydra's RS256 tokens (auth hardening P1): its keys and issuer.
+      HYDRA_JWKS_URL: "http://hydra:4444/.well-known/jwks.json"
+      HYDRA_ISSUER: "http://localhost:${KONG_HOST_PORT:-8080}/"
       # Each install step is a call onto the service that owns that part of
       # the bundle, made with the installing admin's own token.
       IDENTITY_SERVICE_URL: "http://identity-service:${IDENTITY_SERVICE_PORT:-4004}"
@@ -620,6 +659,9 @@ services:
       DB_PASSWORD: "${DB_PASSWORD:-app_password}"
       JWT_SECRET: "${JWT_SECRET:-omnicore-development-secret-change-this}"
       JWT_ISSUER: "${JWT_ISSUER:-omnicore-identity-service}"
+      # Hydra's RS256 tokens (auth hardening P1): its keys and issuer.
+      HYDRA_JWKS_URL: "http://hydra:4444/.well-known/jwks.json"
+      HYDRA_ISSUER: "http://localhost:${KONG_HOST_PORT:-8080}/"
       # The installed bundle (types, fields) and email automations.
       BUNDLE_SERVICE_URL: "http://bundle-service:${BUNDLE_SERVICE_PORT:-4008}"
       EMAIL_SERVICE_URL: "http://email-service:${EMAIL_SERVICE_PORT:-4006}"
@@ -656,6 +698,9 @@ services:
       DB_PASSWORD: "${DB_PASSWORD:-app_password}"
       JWT_SECRET: "${JWT_SECRET:-omnicore-development-secret-change-this}"
       JWT_ISSUER: "${JWT_ISSUER:-omnicore-identity-service}"
+      # Hydra's RS256 tokens (auth hardening P1): its keys and issuer.
+      HYDRA_JWKS_URL: "http://hydra:4444/.well-known/jwks.json"
+      HYDRA_ISSUER: "http://localhost:${KONG_HOST_PORT:-8080}/"
       BUNDLE_SERVICE_URL: "http://bundle-service:${BUNDLE_SERVICE_PORT:-4008}"
       EMAIL_SERVICE_URL: "http://email-service:${EMAIL_SERVICE_PORT:-4006}"
       # Signs the deadline reminders' narrow service token (no user to forward).
@@ -693,6 +738,9 @@ services:
       DB_PASSWORD: "${DB_PASSWORD:-app_password}"
       JWT_SECRET: "${JWT_SECRET:-omnicore-development-secret-change-this}"
       JWT_ISSUER: "${JWT_ISSUER:-omnicore-identity-service}"
+      # Hydra's RS256 tokens (auth hardening P1): its keys and issuer.
+      HYDRA_JWKS_URL: "http://hydra:4444/.well-known/jwks.json"
+      HYDRA_ISSUER: "http://localhost:${KONG_HOST_PORT:-8080}/"
       BUNDLE_SERVICE_URL: "http://bundle-service:${BUNDLE_SERVICE_PORT:-4008}"
     depends_on:
       postgres:
@@ -726,6 +774,9 @@ services:
       DB_PASSWORD: "${DB_PASSWORD:-app_password}"
       JWT_SECRET: "${JWT_SECRET:-omnicore-development-secret-change-this}"
       JWT_ISSUER: "${JWT_ISSUER:-omnicore-identity-service}"
+      # Hydra's RS256 tokens (auth hardening P1): its keys and issuer.
+      HYDRA_JWKS_URL: "http://hydra:4444/.well-known/jwks.json"
+      HYDRA_ISSUER: "http://localhost:${KONG_HOST_PORT:-8080}/"
       # Only this service holds the vault key and the object store's keys.
       # assistant-service blanks all three (it loads .env through env_file).
       VAULT_MASTER_KEY: "${VAULT_MASTER_KEY:-}"

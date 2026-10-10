@@ -10,3 +10,33 @@ oauth2:
   # Every authorization-code flow must use PKCE (S256; Hydra refuses `plain`).
   pkce:
     enforced: true
+
+  # The claims every service builds req.auth from, top-level as in the legacy
+  # token, and not copied again under `ext`. Anything else a session carries
+  # is dropped from the access token.
+  allowed_top_level_claims: [organizationId, role, permissions, username, guest]
+  mirror_top_level_claims: false
+
+  # identity-service rebuilds the claims on every refresh (a refresh REPLACES
+  # them, so it returns the full set) and refuses a user who may no longer
+  # sign in. The URL and the secret are placeholders here: docker-compose.yml
+  # sets them from .env (OAUTH2_TOKEN_HOOK_URL and
+  # OAUTH2_TOKEN_HOOK_AUTH_CONFIG_VALUE; nested values do override from env
+  # once the object is declared here).
+  token_hook:
+    url: http://identity-service:4004/internal/token-hook
+    auth:
+      type: api_key
+      config:
+        name: X-Token-Hook-Secret
+        value: set-from-env
+        in: header
+
+  # A rotated refresh token stays usable for a few seconds. A page that
+  # reloads or navigates while its refresh is in flight never stores the new
+  # cookie, and its next refresh sends the old token; without a grace period
+  # Hydra takes that for theft and revokes the whole session. Reuse after the
+  # grace period still revokes the chain.
+  grant:
+    refresh_token:
+      rotation_grace_period: 10s

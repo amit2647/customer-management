@@ -1,5 +1,7 @@
 const { test, expect } = require("@playwright/test");
 
+const { apiToken } = require("./auth");
+
 /*
  * The UI in a real browser, against the throwaway test stack. Besides the
  * assertions, every test saves a screenshot to tests/e2e/screenshots — the
@@ -22,8 +24,11 @@ async function prepare(page, theme = "lemon") {
   }, theme);
 }
 
+// The login page starts Ory Hydra's flow and comes back with its challenge
+// (auth-hardening P1); the form is the same.
 async function signIn(page, { email, password } = ADMIN) {
   await page.goto("/login");
+  await page.waitForURL(/login_challenge=/);
   await page.getByPlaceholder("you@company.com").fill(email);
   await page.getByPlaceholder("Enter your password").fill(password);
   await page.locator("button.login-submit").click();
@@ -36,6 +41,14 @@ test("signing in lands on the dashboard", async ({ page }) => {
 
   await expect(page.getByRole("button", { name: new RegExp(ADMIN.name) })).toBeVisible();
   await shot(page, "dashboard");
+
+  // The access token lives in memory only; nothing a script could lift later.
+  const stored = await page.evaluate(() => Object.keys(localStorage).filter((key) => /token/i.test(key) || /^ey/.test(localStorage.getItem(key) || "")));
+  expect(stored).toEqual([]);
+
+  // A reload keeps the session through the refresh cookie.
+  await page.reload();
+  await expect(page.getByRole("button", { name: new RegExp(ADMIN.name) })).toBeVisible();
 });
 
 test("the docked assistant panel opens in the bottom-right corner", async ({ page }) => {
@@ -131,8 +144,7 @@ for (const theme of ["lemon", "mint"]) {
 }
 
 test("a screen without permission says so", async ({ page, request }) => {
-  const login = await request.post(`${API}/auth/login`, { data: ADMIN });
-  const { token } = await login.json();
+  const token = await apiToken(request, ADMIN);
 
   const email = `e2e-support-${Date.now()}@test.example`;
   const created = await request.post(`${API}/users`, {
@@ -172,8 +184,7 @@ test("a change proposed by the assistant is confirmed from its card", async ({ p
   await expect(card).toBeHidden();
   await expect(page.getByText(/Tool said:/)).toBeVisible();
 
-  const login = await request.post(`${API}/auth/login`, { data: ADMIN });
-  const { token } = await login.json();
+  const token = await apiToken(request, ADMIN);
   const leads = await (
     await request.get(`${API}/leads?q=${encodeURIComponent(name)}`, { headers: { Authorization: `Bearer ${token}` } })
   ).json();
@@ -222,8 +233,7 @@ test.describe("on a phone-sized screen", () => {
 });
 
 test("an automation's sending account is chosen on its form", async ({ page, request }) => {
-  const login = await request.post(`${API}/auth/login`, { data: ADMIN });
-  const { token } = await login.json();
+  const token = await apiToken(request, ADMIN);
   const headers = { Authorization: `Bearer ${token}` };
 
   // A fresh stack has no email accounts. Connect the same test mailbox the
@@ -471,8 +481,7 @@ test("a client's first engagement carries its fees, and a payment settles them",
 
 // Milestone M4 — deadlines, after the CA install.
 test("a client's deadlines show on its Compliance tab and in the firm-wide feed", async ({ page, request }) => {
-  const login = await request.post(`${API}/auth/login`, { data: ADMIN });
-  const headers = { Authorization: `Bearer ${(await login.json()).token}` };
+  const headers = { Authorization: `Bearer ${await apiToken(request, ADMIN)}` };
 
   // A client engaged for GST returns and ITR in the current year.
   const name = unique("Mehta Exports");
@@ -616,8 +625,7 @@ test("with a bundle, Prospects and Clients replace Leads and Customers, and a co
 
 // Milestone M5 — documents, after the CA install.
 test("a firm writes its own letter text, then a client's letter is drafted and finalized", async ({ page, request }, testInfo) => {
-  const login = await request.post(`${API}/auth/login`, { data: ADMIN });
-  const headers = { Authorization: `Bearer ${(await login.json()).token}` };
+  const headers = { Authorization: `Bearer ${await apiToken(request, ADMIN)}` };
 
   // A company engaged for a statutory audit this year.
   const name = unique("Kulkarni Infra Pvt Ltd");
@@ -672,8 +680,7 @@ test("a firm writes its own letter text, then a client's letter is drafted and f
 
 // Milestone M6 — the vault, after the CA install.
 test("a client's signed consent is uploaded, then a portal password is saved and revealed with a reason", async ({ page, request }) => {
-  const login = await request.post(`${API}/auth/login`, { data: ADMIN });
-  const headers = { Authorization: `Bearer ${(await login.json()).token}` };
+  const headers = { Authorization: `Bearer ${await apiToken(request, ADMIN)}` };
   const name = unique("Patil Textiles");
   const created = await request.post(`${API}/customers`, { headers, data: { name, profile: { attributes: { constitution: "proprietorship" } } } });
   expect(created.status()).toBe(201);

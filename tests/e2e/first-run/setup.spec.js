@@ -1,5 +1,7 @@
 const { test, expect } = require("@playwright/test");
 
+const { apiToken } = require("../auth");
+
 /*
  * A new installation with nothing configured: there is no admin and no
  * default password; the first visit opens setup, which needs the one-time
@@ -56,6 +58,14 @@ test("a new installation is set up from the browser, once", async ({ page, reque
   await shot(page, "setup-confirm");
   await form.getByRole("button", { name: "Finish setup" }).click();
 
+  // Setup ends in the sign-in flow (auth-hardening P1): the new admin signs in
+  // once, on the usual login page.
+  await page.waitForURL(/\/login\?login_challenge=/, { timeout: 60000 });
+  await page.getByPlaceholder("you@company.com").fill(ADMIN.email);
+  await page.getByPlaceholder("Enter your password").fill(ADMIN.password);
+  await shot(page, "setup-sign-in");
+  await page.locator("button.login-submit").click();
+
   // Signed straight in, as the new organization's administrator.
   await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible({ timeout: 30000 });
   await expect(page.getByText(ADMIN.name).first()).toBeVisible();
@@ -71,9 +81,7 @@ test("a new installation is set up from the browser, once", async ({ page, reque
   });
   expect(again.status()).toBe(409);
 
-  const login = await request.post(`${API}/auth/login`, { data: { email: ADMIN.email, password: ADMIN.password } });
-  expect(login.status()).toBe(200);
-  const { token } = await login.json();
+  const token = await apiToken(request, ADMIN);
   const installed = await (await request.get(`${API}/bundles/installed`, { headers: { Authorization: `Bearer ${token}` } })).json();
   expect(installed.bundle.key).toBe("ca-practice");
   // The plain CRM's generic services are gone from a CA workspace.

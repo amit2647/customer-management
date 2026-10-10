@@ -16,7 +16,7 @@ const { api, adminToken, waitFor, sql } = require("./lib");
 function exec(service, command) {
   return spawnSync(
     "docker",
-    ["compose", "-p", "cmtest", "-f", "docker-compose.yml", "-f", "docker-compose.test.yml", "exec", "-T", service, "sh", "-c", command],
+    ["compose", "-p", process.env.TEST_PROJECT || "cmtest", "-f", "docker-compose.yml", "-f", "docker-compose.test.yml", "exec", "-T", service, "sh", "-c", command],
     { cwd: path.join(__dirname, "..", ".."), encoding: "utf8" },
   );
 }

@@ -36,14 +36,152 @@ async function api(method, path, { token, body } = {}) {
   return { status: response.status, body: data };
 }
 
-async function login(email, password) {
-  const { status, body } = await api("POST", "/auth/login", { body: { email, password } });
+/*
+ * Sign-in through Ory Hydra, as the browser does it (auth-hardening P1):
+ * /auth/start → Hydra → our login page's challenge → POST /auth/login →
+ * consent → /auth/callback (refresh cookie) → POST /auth/refresh (access
+ * token). Redirects are followed by hand with a cookie jar, and the login
+ * page itself is skipped: only its login_challenge is needed.
+ */
+const GATEWAY = new URL(API).origin;
 
-  if (status !== 200 || !body?.token) {
-    throw new Error(`login failed for ${email}: ${status} ${JSON.stringify(body)}`);
+class CookieJar {
+  constructor() {
+    this.cookies = new Map();
   }
 
-  return body.token;
+  store(response) {
+    for (const line of response.headers.getSetCookie()) {
+      const [pair, ...attributes] = line.split(";");
+      const index = pair.indexOf("=");
+      const name = pair.slice(0, index).trim();
+      const value = pair.slice(index + 1).trim();
+      const expired = attributes.some((attribute) => /^\s*max-age=0\s*$/i.test(attribute) || /^\s*expires=thu, 01 jan 1970/i.test(attribute));
+      if (expired || value === "") this.cookies.delete(name);
+      else this.cookies.set(name, value);
+    }
+  }
+
+  header() {
+    return [...this.cookies].map(([name, value]) => `${name}=${value}`).join("; ");
+  }
+
+  get(name) {
+    return this.cookies.get(name);
+  }
+
+  set(name, value) {
+    this.cookies.set(name, value);
+  }
+}
+
+// One request, never following a redirect; cookies go only to the gateway.
+async function hop(jar, url, init = {}) {
+  const sameSite = new URL(url).origin === GATEWAY;
+  const response = await fetch(url, {
+    ...init,
+    redirect: "manual",
+    headers: { ...(init.headers || {}), ...(sameSite && jar.cookies.size ? { Cookie: jar.header() } : {}) },
+  });
+  if (sameSite) jar.store(response);
+  return response;
+}
+
+// Follows redirects through the gateway until one leaves it (into the app).
+async function follow(jar, url) {
+  let location = url;
+  for (let step = 0; step < 10; step += 1) {
+    if (new URL(location).origin !== GATEWAY) return location;
+    const response = await hop(jar, location);
+    const next = response.headers.get("location");
+    if (!next) throw new Error(`sign-in stopped at ${location}: ${response.status} ${(await response.text()).slice(0, 200)}`);
+    location = new URL(next, location).toString();
+  }
+  throw new Error("too many redirects");
+}
+
+// /auth/start until Hydra hands over to the login page: its login_challenge.
+async function loginChallenge(jar) {
+  const loginPage = await follow(jar, `${API}/auth/start`);
+  const challenge = new URL(loginPage).searchParams.get("login_challenge");
+  if (!challenge) throw new Error(`no login_challenge in ${loginPage}`);
+  return challenge;
+}
+
+async function refresh(jar) {
+  const response = await hop(jar, `${API}/auth/refresh`, { method: "POST" });
+  return { status: response.status, body: await response.json().catch(() => null) };
+}
+
+// The full sign-in: { token, jar, landedOn }. The jar holds the refresh cookie.
+async function signIn(email, password) {
+  const jar = new CookieJar();
+  const challenge = await loginChallenge(jar);
+
+  const login = await hop(jar, `${API}/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password, login_challenge: challenge }),
+  });
+  const body = await login.json().catch(() => null);
+  if (login.status !== 200 || !body?.redirect_to) {
+    const error = new Error(`login failed for ${email}: ${login.status} ${JSON.stringify(body)}`);
+    error.status = login.status;
+    throw error;
+  }
+
+  const landedOn = await follow(jar, body.redirect_to);
+  const session = await refresh(jar);
+  if (session.status !== 200) throw new Error(`refresh after sign-in failed: ${session.status} ${JSON.stringify(session.body)}`);
+
+  return { token: session.body.accessToken, jar, landedOn };
+}
+
+async function login(email, password) {
+  return (await signIn(email, password)).token;
+}
+
+// A guest opening their invite link: the same flow, with the invite token in
+// place of a password.
+async function redeemInvite(inviteToken) {
+  const jar = new CookieJar();
+  const challenge = await loginChallenge(jar);
+
+  const redeem = await hop(jar, `${API}/access-grants/redeem`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token: inviteToken, login_challenge: challenge }),
+  });
+  const body = await redeem.json().catch(() => null);
+  if (redeem.status !== 200) return { status: redeem.status, body };
+
+  await follow(jar, body.redirect_to);
+  const session = await refresh(jar);
+  return { status: session.status, token: session.body?.accessToken, email: body.email, jar };
+}
+
+// A request made from inside a container of the stack (for what the gateway
+// does not route): returns the HTTP status.
+function statusFromInside(service, url, { method = "GET", headers = {}, body } = {}) {
+  const script = `fetch(${JSON.stringify(url)}, ${JSON.stringify({ method, headers, body })}).then((r) => console.log(r.status), (e) => { console.error(e.message); process.exit(1); })`;
+  const result = spawnSync(
+    "docker",
+    ["compose", "-p", process.env.TEST_PROJECT || "cmtest", "-f", "docker-compose.yml", "-f", "docker-compose.test.yml", "exec", "-T", service, "node", "-e", script],
+    { cwd: path.join(__dirname, "..", ".."), encoding: "utf8" },
+  );
+  if (result.status !== 0) throw new Error(`request from ${service} failed: ${result.stderr || result.stdout}`);
+  return Number(result.stdout.trim());
+}
+
+// Hydra's own CLI inside the cmtest stack (its admin API is not published).
+function hydraCli(...args) {
+  const result = spawnSync(
+    "docker",
+    ["compose", "-p", process.env.TEST_PROJECT || "cmtest", "-f", "docker-compose.yml", "-f", "docker-compose.test.yml", "exec", "-T", "hydra", "hydra", ...args, "--endpoint", "http://localhost:4445"],
+    { cwd: path.join(__dirname, "..", ".."), encoding: "utf8" },
+  );
+  if (result.status !== 0) throw new Error(`hydra ${args[0]} failed: ${result.stderr || result.stdout}`);
+  return result.stdout;
 }
 
 const adminToken = () => login(ADMIN.email, ADMIN.password);
@@ -105,7 +243,7 @@ function sql(query) {
     [
       "compose",
       "-p",
-      "cmtest",
+      process.env.TEST_PROJECT || "cmtest",
       "-f",
       "docker-compose.yml",
       "-f",
@@ -157,4 +295,4 @@ async function caFirm(admin, label = "CA Firm") {
   return firm;
 }
 
-module.exports = { api, login, adminToken, createUser, organizationWithAdmin, caFirm, unique, uuid, modelCalls, waitFor, sql, ADMIN };
+module.exports = { api, login, signIn, refresh, redeemInvite, hop, hydraCli, statusFromInside, CookieJar, GATEWAY, adminToken, createUser, organizationWithAdmin, caFirm, unique, uuid, modelCalls, waitFor, sql, ADMIN };

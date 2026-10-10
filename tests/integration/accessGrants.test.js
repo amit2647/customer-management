@@ -1,7 +1,7 @@
 const { describe, test, before } = require("node:test");
 const assert = require("node:assert/strict");
 
-const { api, adminToken, createUser, unique } = require("./lib");
+const { api, adminToken, createUser, unique, redeemInvite, signIn, refresh } = require("./lib");
 
 /*
  * Just-in-time access is read live on every request, so a grant and its
@@ -69,9 +69,10 @@ describe("guest invites", () => {
     inviteToken = granted.body.inviteToken;
     assert.ok(inviteToken, "an external grant returns an invite token");
 
-    const redeemed = await api("POST", "/access-grants/redeem", { body: { token: inviteToken } });
+    // The invite link enters the Hydra sign-in flow (auth-hardening P1).
+    const redeemed = await redeemInvite(inviteToken);
     assert.equal(redeemed.status, 200, JSON.stringify(redeemed.body));
-    guestToken = redeemed.body.token;
+    guestToken = redeemed.token;
   });
 
   test("the guest can use what was granted", async () => {
@@ -84,23 +85,34 @@ describe("guest invites", () => {
     }
   });
 
+  test("the guest's token is Hydra's, with no role or permissions of its own", async () => {
+    const [, payload] = guestToken.split(".");
+    const claims = JSON.parse(Buffer.from(payload, "base64url").toString());
+
+    assert.deepEqual(claims.permissions, []);
+    assert.equal(claims.role, "GUEST");
+    assert.equal(claims.guest, true);
+    assert.ok(claims.aud.includes("omnicore-api"));
+  });
+
   test("a guest cannot sign in with a password", async () => {
+    await assert.rejects(signIn("guest@test.example", "anything-123"), { status: 401 });
+
     const { status } = await api("POST", "/auth/login", {
       body: { email: "guest@test.example", password: "anything-123" },
     });
-
-    assert.equal(status, 401);
+    assert.equal(status, 401, "legacy login");
   });
 
   test("the link can be reopened while the grant is active (another device, lost session)", async () => {
-    const again = await api("POST", "/access-grants/redeem", { body: { token: inviteToken } });
+    const again = await redeemInvite(inviteToken);
 
     assert.equal(again.status, 200);
-    assert.equal((await api("GET", "/leads", { token: again.body.token })).status, 200);
+    assert.equal((await api("GET", "/leads", { token: again.token })).status, 200);
   });
 
   test("a made-up invite token is refused", async () => {
-    const { status } = await api("POST", "/access-grants/redeem", { body: { token: "not-a-real-token" } });
+    const { status } = await redeemInvite("not-a-real-token");
 
     assert.equal(status, 404);
   });
@@ -118,8 +130,12 @@ test("a revoked invite link stops working", async () => {
     },
   });
 
+  const guest = await redeemInvite(granted.body.inviteToken);
+  assert.equal(guest.status, 200);
+
   await api("POST", `/access-grants/${granted.body.grants[0].id}/revoke`, { token: admin });
 
-  const { status } = await api("POST", "/access-grants/redeem", { body: { token: granted.body.inviteToken } });
-  assert.equal(status, 404);
+  assert.equal((await redeemInvite(granted.body.inviteToken)).status, 404, "the link");
+  // With no grant left, the token hook refuses the guest a fresh token.
+  assert.equal((await refresh(guest.jar)).status, 401, "the session");
 });

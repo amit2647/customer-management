@@ -11,11 +11,20 @@ set -uo pipefail
 
 cd "$(dirname "$0")/.."
 
-PROJECT=cmtest
+# TEST_PROJECT (and the TEST_*_PORT values) let two runs proceed side by side
+# without sharing, or tearing down, each other's stack.
+PROJECT="${TEST_PROJECT:-cmtest}"
+export TEST_PROJECT="$PROJECT"
 COMPOSE=(docker compose -p "$PROJECT" -f docker-compose.yml -f docker-compose.test.yml --profile ui)
 
 export TEST_KONG_PORT="${TEST_KONG_PORT:-18080}"
 export TEST_UI_PORT="${TEST_UI_PORT:-13000}"
+
+# Hydra's issuer, the OAuth redirect and the app every service and cookie
+# refers to are derived from these, so they follow this stack's own ports
+# (shell exports win over .env in compose interpolation).
+export KONG_HOST_PORT="$TEST_KONG_PORT"
+export PUBLIC_APP_URL="http://localhost:${TEST_UI_PORT:-13000}"
 export TEST_FAKE_MODEL_PORT="${TEST_FAKE_MODEL_PORT:-18099}"
 export TEST_MAIL_PORT="${TEST_MAIL_PORT:-18025}"
 export TEST_GREENMAIL_SMTP_PORT="${TEST_GREENMAIL_SMTP_PORT:-13025}"

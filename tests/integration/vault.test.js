@@ -39,7 +39,7 @@ function objectExists(objectKey) {
   const script = `const { S3Client, HeadObjectCommand } = require("@aws-sdk/client-s3");
     const s3 = new S3Client({ endpoint: process.env.S3_ENDPOINT, region: "us-east-1", forcePathStyle: true, credentials: { accessKeyId: process.env.S3_ACCESS_KEY, secretAccessKey: process.env.S3_SECRET_KEY } });
     s3.send(new HeadObjectCommand({ Bucket: process.env.S3_BUCKET, Key: ${JSON.stringify(objectKey)} })).then(() => console.log("present"), (e) => console.log(e.name === "NotFound" || e.$metadata?.httpStatusCode === 404 ? "absent" : "error " + e.name));`;
-  const result = spawnSync("docker", ["compose", "-p", "cmtest", "-f", "docker-compose.yml", "-f", "docker-compose.test.yml", "exec", "-T", "vault-service", "node", "-e", script], {
+  const result = spawnSync("docker", ["compose", "-p", process.env.TEST_PROJECT || "cmtest", "-f", "docker-compose.yml", "-f", "docker-compose.test.yml", "exec", "-T", "vault-service", "node", "-e", script], {
     cwd: path.join(__dirname, "..", ".."),
     encoding: "utf8",
   });
