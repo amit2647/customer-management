@@ -10,11 +10,30 @@ const { apiToken } = require("./auth");
  */
 
 const API = process.env.API_BASE || "http://localhost:18080/api";
+const MAIL = process.env.MAIL_URL || "http://localhost:18025";
 const ADMIN = { email: "admin@test.example", password: "Test-Admin-123!", name: "Test Admin" };
 const THEMES = ["lemon", "cobalt", "mint", "coral"];
 
 // Animations jump to their end, so a dialog caught fading in shows as it settles.
 const shot = (page, name) => page.screenshot({ path: `screenshots/${name}.png`, fullPage: false, animations: "disabled" });
+
+// The link Mailpit caught for this address (auth hardening P4): a member an
+// admin creates confirms their email before they can sign in.
+async function verificationLink(request, address) {
+  for (let attempt = 0; attempt < 60; attempt += 1) {
+    const search = await (await request.get(`${MAIL}/api/v1/search?query=${encodeURIComponent(`to:"${address}"`)}`)).json();
+
+    for (const message of search.messages || []) {
+      const detail = await (await request.get(`${MAIL}/api/v1/message/${message.ID}`)).json();
+      const match = /https?:\/\/\S+\/verify-email#[A-Za-z0-9_-]+/.exec(detail.Text || "");
+      if (match) return match[0];
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+
+  throw new Error(`no verification email reached ${address}`);
+}
 
 async function prepare(page, theme = "lemon") {
   // Skip the one-time onboarding; pin the theme under test.
@@ -153,7 +172,15 @@ test("a screen without permission says so", async ({ page, request }) => {
   });
   expect(created.status()).toBe(201);
 
+  // As the new member would: open the emailed link and confirm.
   await prepare(page);
+  const link = new URL(await verificationLink(request, email));
+  await page.goto(`/verify-email${link.hash}`);
+  await expect(page).toHaveURL(/\/verify-email$/);
+  await page.getByRole("button", { name: "Confirm my email address" }).click();
+  await expect(page.getByRole("heading", { name: "Email address confirmed" })).toBeVisible();
+  await shot(page, "email-confirmed");
+
   await signIn(page, { email, password: "Support-Pass-123!" });
   await page.goto("/leads");
 

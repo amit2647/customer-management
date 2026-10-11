@@ -1,7 +1,7 @@
 const { test, before } = require("node:test");
 const assert = require("node:assert/strict");
 
-const { api, adminToken, createUser, login, unique } = require("./lib");
+const { api, adminToken, createUser, confirmEmail, login, unique } = require("./lib");
 
 /*
  * Self-service profile, end to end: the change reaches the database and the
@@ -31,6 +31,9 @@ test("rename, change email and password, then sign in with the new ones", async 
     body: { email: newEmail, currentPassword: member.password },
   });
   assert.equal(moved.status, 200);
+
+  // The new address takes effect once its link is opened (auth hardening P4).
+  await confirmEmail(newEmail);
 
   const changed = await api("PUT", "/profile/password", {
     token: member.token,

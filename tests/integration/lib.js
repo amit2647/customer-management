@@ -10,6 +10,7 @@ const { spawnSync } = require("child_process");
 
 const API = process.env.API_BASE || "http://localhost:18080/api";
 const FAKE_MODEL = process.env.FAKE_MODEL_URL || "http://localhost:18099";
+const MAIL = process.env.MAIL_URL || "http://localhost:18025";
 
 // Seeded by docker-compose.test.yml.
 const ADMIN = { email: "admin@test.example", password: "Test-Admin-123!" };
@@ -206,7 +207,46 @@ async function createUser(admin, roleCode, { password = "Member-Pass-123!" } = {
     throw new Error(`createUser ${roleCode}: ${status} ${JSON.stringify(body)}`);
   }
 
+  // A new member signs in only once they open the link mailed to them (P4).
+  await confirmEmail(email);
+
   return { id: body.id ?? body.user?.id, email, password, token: await login(email, password) };
+}
+
+/*
+ * Email verification (auth hardening P4), as the person would do it: the
+ * newest verification link Mailpit caught for this address. Each new link
+ * replaces the older ones, so `after` (a count of earlier links) waits for
+ * the next.
+ */
+async function verificationLinks(address) {
+  const response = await fetch(`${MAIL}/api/v1/search?query=${encodeURIComponent(`to:"${address}"`)}`);
+  const { messages = [] } = await response.json();
+  const links = [];
+
+  for (const message of messages) {
+    const detail = await (await fetch(`${MAIL}/api/v1/message/${message.ID}`)).json();
+    const match = /\/verify-email#([A-Za-z0-9_-]+)/.exec(detail.Text || "");
+    if (match) links.push({ token: match[1], at: new Date(message.Created).getTime() });
+  }
+
+  return links.sort((a, b) => a.at - b.at).map((link) => link.token);
+}
+
+async function verificationToken(address, { after = 0 } = {}) {
+  const links = await waitFor(async () => {
+    const found = await verificationLinks(address);
+    return found.length > after ? found : null;
+  }, { what: `a verification email to ${address}` });
+
+  return links[links.length - 1];
+}
+
+async function confirmEmail(address, options) {
+  const token = await verificationToken(address, options);
+  const { status, body } = await api("POST", "/auth/verify-email", { body: { token } });
+  if (status !== 200) throw new Error(`confirming ${address}: ${status} ${JSON.stringify(body)}`);
+  return body;
 }
 
 async function modelCalls() {
@@ -295,4 +335,4 @@ async function caFirm(admin, label = "CA Firm") {
   return firm;
 }
 
-module.exports = { api, login, signIn, refresh, redeemInvite, hop, hydraCli, statusFromInside, CookieJar, GATEWAY, adminToken, createUser, organizationWithAdmin, caFirm, unique, uuid, modelCalls, waitFor, sql, ADMIN };
+module.exports = { api, login, signIn, refresh, redeemInvite, confirmEmail, verificationToken, verificationLinks, hop, hydraCli, statusFromInside, CookieJar, GATEWAY, adminToken, createUser, organizationWithAdmin, caFirm, unique, uuid, modelCalls, waitFor, sql, ADMIN };

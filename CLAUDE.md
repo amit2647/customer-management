@@ -55,8 +55,9 @@ key's real source ambiguous. Two consequences: never add `OPENROUTER_*` under th
 `env_file` loads the whole file, the `BOOTSTRAP_*` values are explicitly blanked for that one
 container so the service that talks to an external model is not also holding the seed admin
 password. `VAULT_MASTER_KEY`, `S3_ACCESS_KEY`, `S3_SECRET_KEY` and `SERVICE_JWT_SECRET` are blanked there for the same
-reason; only vault-service may hold the first three, and only obligation- and email-service
-the last. `HYDRA_SECRETS_SYSTEM`, `HYDRA_DB_PASSWORD`, `OAUTH_CLIENT_SECRET` and
+reason; only vault-service may hold the first three, and only obligation-, identity- and
+email-service the last. `SYSTEM_SMTP_USER`/`SYSTEM_SMTP_PASSWORD` (the system mail account) are
+blanked too: email-service alone holds them. `HYDRA_SECRETS_SYSTEM`, `HYDRA_DB_PASSWORD`, `OAUTH_CLIENT_SECRET` and
 `TOKEN_HOOK_SECRET` are blanked too: the first two belong to Hydra (and the `migrate` runner,
 which creates Hydra's role), the third to identity-service only, the last to Hydra and
 identity-service. Any new secret in `.env` needs the same blanking.
@@ -239,11 +240,24 @@ serves traffic.
   `AUTH_SESSION_MAX_AGE` (default 30 d) caps a session however active — the token hook refuses
   once Hydra's `auth_time` is older, and refuses a session without one. Already-issued access
   tokens are JWTs and run out within 5 minutes; nothing revokes them sooner.
+- **Email verification** (P4): `users.email_verified_at` (migration 023; users that existed then
+  were backfilled as verified). A member created by an admin **cannot sign in until they open the
+  link** mailed to them — `checkPassword` refuses with 403 `code: "email_unverified"` *after* the
+  password check, and the login page offers "send the link again" (`POST /auth/verify-email/resend`,
+  always 202). Links live in `email_verifications` (sha256 of the token, 24 h, single use, a newer
+  one replaces older ones) and carry the token after `#` (`/verify-email#…`), so it never reaches
+  a server log. The first-run admin, the seed's bootstrap admin and a guest who redeems an invite
+  start verified. An email change waits for its link: on Profile the old address stays until the
+  new one is confirmed (`pendingEmail`); an admin's change applies at once but unverifies it.
+  Mail goes out through email-service's `POST /internal/system-mail` (not routed by Kong; service
+  token, scope `system-mail.send`; fixed kinds only, worded there) from the **system mail
+  account** `SYSTEM_SMTP_*`. Without it nothing is mailed and an admin is handed the link to pass
+  on (as with guest invites) — never the person themselves, or the address would not be proved.
 - **There is no shared signing secret.** Every service's `middleware/verifyToken.js` (identical
   copies, identical tests) accepts only RS256 tokens signed by a key from Hydra's JWKS
   (`HYDRA_JWKS_URL`), with `iss` = `HYDRA_ISSUER` and `aud` including `omnicore-api`; anything
   else is 401. identity-service signs nothing; setup gets the new admin's token from Hydra
-  (`oauthFlow.tokenForUser`). `SERVICE_JWT_SECRET` (obligation → email trigger) is separate.
+  (`oauthFlow.tokenForUser`). `SERVICE_JWT_SECRET` (obligation → email trigger, identity → email system mail) is separate.
 - Token claims: `sub` (user id), `username`, `organizationId`, `role`, `permissions` (and `guest`).
   **One builder** (`identity-service/src/services/claims.js`) makes them for consent and for
   Hydra's token hook (`POST /internal/token-hook`, not routed, shared `TOKEN_HOOK_SECRET`), which

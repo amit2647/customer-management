@@ -76,6 +76,15 @@ services:
       AUTOMATION_POLL_INTERVAL_MS: "1000"
       # Picks up the test's email account seconds after it is created.
       EMAIL_RECEIVER_SYNC_MS: "2000"
+      # Account email (verification links) goes to Mailpit too. Every value is
+      # set here, the credentials blank: otherwise a developer's real system
+      # mail account in .env would reach the test stack.
+      SYSTEM_SMTP_HOST: "mailpit"
+      SYSTEM_SMTP_PORT: "1025"
+      SYSTEM_SMTP_SECURE: "false"
+      SYSTEM_SMTP_USER: ""
+      SYSTEM_SMTP_PASSWORD: ""
+      SYSTEM_SMTP_FROM: "OmniCore <no-reply@omnicore.test>"
 
   # The model settings come from a test file instead of .env, so the real
   # OpenRouter key is never loaded and the assistant talks to the fake below.

@@ -349,6 +349,11 @@ services:
       AUTH_SESSION_MAX_AGE: "${AUTH_SESSION_MAX_AGE:-720h}"
       # Hydra's token hook presents this; only Hydra and this service hold it.
       TOKEN_HOOK_SECRET: "${TOKEN_HOOK_SECRET:-omnicore-development-token-hook-secret-change-this}"
+      # Verification links (auth hardening P4) are mailed by email-service,
+      # which holds the system mail account; this service signs a service
+      # token for that one route.
+      EMAIL_SERVICE_URL: "http://email-service:${EMAIL_SERVICE_PORT:-4006}"
+      SERVICE_JWT_SECRET: "${SERVICE_JWT_SECRET:-omnicore-development-service-secret-change-this}"
     depends_on:
       postgres:
         condition: service_healthy
@@ -442,8 +447,18 @@ services:
       # Hydra's RS256 tokens, the only kind accepted: its keys and issuer.
       HYDRA_JWKS_URL: "http://hydra:4444/.well-known/jwks.json"
       HYDRA_ISSUER: "http://localhost:${KONG_HOST_PORT:-8080}/"
-      # Accepted on the automation trigger route only, from background services.
+      # Accepted on two routes only: the automation trigger (background
+      # services) and /internal/system-mail (identity-service's account mail).
       SERVICE_JWT_SECRET: "${SERVICE_JWT_SECRET:-omnicore-development-service-secret-change-this}"
+
+      # The system mail account for account email (verification links, P4).
+      # Unset, nothing is mailed and an admin is shown the link to pass on.
+      SYSTEM_SMTP_HOST: "${SYSTEM_SMTP_HOST:-}"
+      SYSTEM_SMTP_PORT: "${SYSTEM_SMTP_PORT:-587}"
+      SYSTEM_SMTP_SECURE: "${SYSTEM_SMTP_SECURE:-false}"
+      SYSTEM_SMTP_USER: "${SYSTEM_SMTP_USER:-}"
+      SYSTEM_SMTP_PASSWORD: "${SYSTEM_SMTP_PASSWORD:-}"
+      SYSTEM_SMTP_FROM: "${SYSTEM_SMTP_FROM:-}"
 
       # Redis
       REDIS_URL: "${REDIS_URL:-redis://redis:6379}"
@@ -548,6 +563,9 @@ services:
       HYDRA_DB_PASSWORD: ""
       OAUTH_CLIENT_SECRET: ""
       TOKEN_HOOK_SECRET: ""
+      # The system mail account: email-service only.
+      SYSTEM_SMTP_USER: ""
+      SYSTEM_SMTP_PASSWORD: ""
       BOOTSTRAP_ORG_NAME: ""
       BOOTSTRAP_ORG_SLUG: ""
 

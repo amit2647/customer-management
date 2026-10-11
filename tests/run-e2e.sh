@@ -78,6 +78,7 @@ docker run --rm --network host --ipc host \
   -u "$(id -u):$(id -g)" -e HOME=/tmp -e CI="${CI:-}" \
   -e UI_BASE="http://localhost:${TEST_UI_PORT}" \
   -e API_BASE="http://localhost:${TEST_KONG_PORT}/api" \
+  -e MAIL_URL="http://localhost:${TEST_MAIL_PORT}" \
   -v "$PWD/tests/e2e":/e2e -w /e2e \
   "$PLAYWRIGHT_IMAGE" \
   sh -c 'npm ci --no-audit --no-fund --loglevel=error && npx playwright test'
