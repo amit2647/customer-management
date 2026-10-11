@@ -229,6 +229,16 @@ serves traffic.
   lives in an httpOnly, SameSite=Strict cookie** on `/api/auth`; `POST /auth/refresh` rotates it
   (10 s grace for a reload mid-refresh; reuse after that revokes the session) and returns a
   5-minute **access token, held in the frontend's memory only**. `/auth/logout` revokes.
+- **Sessions** (P3): `/auth/logout` ends this device's session; `POST /auth/sessions/revoke`
+  (Profile → "Sign out everywhere") ends every session of the caller through Hydra's admin API
+  (`hydra.revokeSessions`: consent and login sessions, which revokes their refresh tokens).
+  Deactivating, deleting or **changing the role** of a user does the same for them
+  (`userService`, best effort: the token hook refuses or rebuilds at the next refresh anyway). A
+  rename that resends the same role does not. Lifetimes: `HYDRA_TTL_REFRESH_TOKEN` (default 7 d)
+  is the **idle** timeout, since each refresh issues a token with a fresh lifetime;
+  `AUTH_SESSION_MAX_AGE` (default 30 d) caps a session however active — the token hook refuses
+  once Hydra's `auth_time` is older, and refuses a session without one. Already-issued access
+  tokens are JWTs and run out within 5 minutes; nothing revokes them sooner.
 - **There is no shared signing secret.** Every service's `middleware/verifyToken.js` (identical
   copies, identical tests) accepts only RS256 tokens signed by a key from Hydra's JWKS
   (`HYDRA_JWKS_URL`), with `iss` = `HYDRA_ISSUER` and `aud` including `omnicore-api`; anything

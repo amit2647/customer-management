@@ -175,7 +175,9 @@ services:
       # Signed JWT access tokens (verified per request against Hydra's JWKS in P1).
       STRATEGIES_ACCESS_TOKEN: "jwt"
       TTL_ACCESS_TOKEN: "${HYDRA_TTL_ACCESS_TOKEN:-5m}"
-      TTL_REFRESH_TOKEN: "${HYDRA_TTL_REFRESH_TOKEN:-720h}"
+      # Each refresh issues a token with a fresh lifetime: this is the idle
+      # timeout. identity-service caps a session's total age (AUTH_SESSION_MAX_AGE).
+      TTL_REFRESH_TOKEN: "${HYDRA_TTL_REFRESH_TOKEN:-168h}"
       # The token hook (declared in hydra.yml): identity-service rebuilds the
       # claims on every refresh. Its URL and shared secret come from here.
       OAUTH2_TOKEN_HOOK_URL: "http://identity-service:${IDENTITY_SERVICE_PORT:-4004}/internal/token-hook"
@@ -343,7 +345,8 @@ services:
       HYDRA_PUBLIC_URL: "http://hydra:4444"
       PUBLIC_APP_URL: "${PUBLIC_APP_URL:-http://localhost:3000}"
       AUTH_COOKIE_SECURE: "${AUTH_COOKIE_SECURE:-false}"
-      HYDRA_TTL_REFRESH_TOKEN: "${HYDRA_TTL_REFRESH_TOKEN:-720h}"
+      HYDRA_TTL_REFRESH_TOKEN: "${HYDRA_TTL_REFRESH_TOKEN:-168h}"
+      AUTH_SESSION_MAX_AGE: "${AUTH_SESSION_MAX_AGE:-720h}"
       # Hydra's token hook presents this; only Hydra and this service hold it.
       TOKEN_HOOK_SECRET: "${TOKEN_HOOK_SECRET:-omnicore-development-token-hook-secret-change-this}"
     depends_on:

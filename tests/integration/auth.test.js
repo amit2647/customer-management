@@ -1,7 +1,7 @@
 const { describe, test, before } = require("node:test");
 const assert = require("node:assert/strict");
 
-const { api, adminToken, createUser, signIn, refresh, hop, hydraCli, statusFromInside, GATEWAY, ADMIN } = require("./lib");
+const { api, adminToken, createUser, signIn, refresh, hop, hydraCli, statusFromInside, unique, GATEWAY, ADMIN } = require("./lib");
 
 /*
  * Sign-in, and that every route behind the gateway refuses an anonymous or
@@ -149,7 +149,7 @@ describe("sign-in through Hydra", () => {
     assert.equal((await refresh(jar)).status, 401, "revoked");
   });
 
-  test("a role change reaches the token at the next refresh", async () => {
+  test("a role change ends the user's sessions; signing in again carries the new role", async () => {
     const admin = await adminToken();
     const member = await createUser(admin, "SALES_REP");
     const { token, jar } = await signIn(member.email, member.password);
@@ -157,19 +157,41 @@ describe("sign-in through Hydra", () => {
 
     const changed = await api("PUT", `/users/${member.id}`, { token: admin, body: { roleCode: "SALES_MANAGER" } });
     assert.equal(changed.status, 200, JSON.stringify(changed.body));
+    assert.equal((await refresh(jar)).status, 401, "signed out at once");
 
-    const refreshed = await refresh(jar);
-    assert.equal(refreshed.status, 200);
-    assert.equal(claimsOf(refreshed.body.accessToken).role, "SALES_MANAGER");
-    assert.ok(claimsOf(refreshed.body.accessToken).organizationId, "the full claim set, not just what changed");
+    const again = await signIn(member.email, member.password);
+    assert.equal(claimsOf(again.token).role, "SALES_MANAGER");
+    assert.ok(claimsOf(again.token).organizationId, "the full claim set");
   });
 
-  test("a deactivated user's next refresh is refused", async () => {
+  test("a rename that resends the same role and status keeps the user signed in", async () => {
     const admin = await adminToken();
     const member = await createUser(admin, "SALES_REP");
     const { jar } = await signIn(member.email, member.password);
 
+    const renamed = await api("PUT", `/users/${member.id}`, { token: admin, body: { name: unique("Renamed"), roleCode: "SALES_REP", status: "Active" } });
+    assert.equal(renamed.status, 200, JSON.stringify(renamed.body));
+    assert.equal((await refresh(jar)).status, 200);
+  });
+
+  test("deactivating a user ends every session they have, on every device", async () => {
+    const admin = await adminToken();
+    const member = await createUser(admin, "SALES_REP");
+    const laptop = await signIn(member.email, member.password);
+    const phone = await signIn(member.email, member.password);
+
     assert.equal((await api("PUT", `/users/${member.id}`, { token: admin, body: { status: "Inactive" } })).status, 200);
+    assert.equal((await refresh(laptop.jar)).status, 401);
+    assert.equal((await refresh(phone.jar)).status, 401);
+  });
+
+  test("deleting a user ends their sessions", async () => {
+    const admin = await adminToken();
+    const member = await createUser(admin, "SALES_REP");
+    const { jar } = await signIn(member.email, member.password);
+
+    const deleted = await api("DELETE", `/users/${member.id}`, { token: admin });
+    assert.ok([200, 204].includes(deleted.status), JSON.stringify(deleted.body));
     assert.equal((await refresh(jar)).status, 401);
   });
 
@@ -240,5 +262,39 @@ describe("sign-in through Hydra", () => {
     for (const [method, route] of routes) {
       assert.equal((await api(method, route, { token: forged })).status, 401, `${method} ${route}`);
     }
+  });
+});
+
+describe("sign out everywhere (auth hardening P3)", () => {
+  test("ends every session of the caller, this device and the others", async () => {
+    const admin = await adminToken();
+    const member = await createUser(admin, "SALES_REP");
+    const laptop = await signIn(member.email, member.password);
+    const phone = await signIn(member.email, member.password);
+
+    const out = await hop(laptop.jar, `${GATEWAY}/api/auth/sessions/revoke`, { method: "POST", headers: { Authorization: `Bearer ${laptop.token}` } });
+    assert.equal(out.status, 204);
+
+    assert.equal((await refresh(laptop.jar)).status, 401, "this device");
+    assert.equal((await refresh(phone.jar)).status, 401, "the other device");
+
+    const again = await signIn(member.email, member.password);
+    assert.ok(again.token, "and they can sign in again");
+  });
+
+  test("needs a signed-in caller", async () => {
+    const out = await api("POST", "/auth/sessions/revoke");
+    assert.equal(out.status, 401);
+  });
+
+  test("ends only the caller's own sessions", async () => {
+    const admin = await adminToken();
+    const one = await createUser(admin, "SALES_REP");
+    const other = await createUser(admin, "SALES_REP");
+    const mine = await signIn(one.email, one.password);
+    const theirs = await signIn(other.email, other.password);
+
+    await hop(mine.jar, `${GATEWAY}/api/auth/sessions/revoke`, { method: "POST", headers: { Authorization: `Bearer ${mine.token}` } });
+    assert.equal((await refresh(theirs.jar)).status, 200);
   });
 });
