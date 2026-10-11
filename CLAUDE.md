@@ -56,9 +56,10 @@ key's real source ambiguous. Two consequences: never add `OPENROUTER_*` under th
 container so the service that talks to an external model is not also holding the seed admin
 password. `VAULT_MASTER_KEY`, `S3_ACCESS_KEY`, `S3_SECRET_KEY` and `SERVICE_JWT_SECRET` are blanked there for the same
 reason; only vault-service may hold the first three, and only obligation- and email-service
-the last. `HYDRA_SECRETS_SYSTEM`, `HYDRA_DB_PASSWORD` and `OAUTH_CLIENT_SECRET` are blanked too:
-the first two belong to Hydra (and the `migrate` runner, which creates Hydra's role), the last
-to identity-service only. Any new secret in `.env` needs the same blanking.
+the last. `HYDRA_SECRETS_SYSTEM`, `HYDRA_DB_PASSWORD`, `OAUTH_CLIENT_SECRET` and
+`TOKEN_HOOK_SECRET` are blanked too: the first two belong to Hydra (and the `migrate` runner,
+which creates Hydra's role), the third to identity-service only, the last to Hydra and
+identity-service. Any new secret in `.env` needs the same blanking.
 
 Note the asymmetry: the interpolated variables *are* still shell-overridable, which is normal and
 useful for CI. Only `OPENROUTER_*` is shell-proof.
@@ -78,13 +79,13 @@ Standard `docker compose` usage (`up -d`, `ps`, `logs -f <service>`, `up -d --bu
 - **SeaweedFS** (the S3 store for client files) publishes nothing and only vault-service holds
   its keys (`S3_ACCESS_KEY`/`S3_SECRET_KEY`). Its keys always have a value — with none it
   would serve the store anonymously — so compose falls back to development defaults, like
-  `JWT_SECRET`. It replaced MinIO, whose community edition was discontinued in 2026.
+  Hydra's secrets. It replaced MinIO, whose community edition was discontinued in 2026.
 - Each backend service also exposes its own port directly (4001–4012) for debugging, but the
   frontend and inter-service calls always go through the gateway or internal Docker DNS
   (`http://<service-name>:<port>`), never `localhost`, inside containers.
 - Individual services can be run outside Docker with `npm start` (or `npm run dev` for
   auto-restart, where available) from within the submodule directory, provided `DB_HOST`,
-  `JWT_SECRET`, etc. are set to match `docker-compose.yml`.
+  `HYDRA_JWKS_URL`, `HYDRA_ISSUER`, etc. are set to match `docker-compose.yml`.
 
 ## Testing
 
@@ -101,7 +102,9 @@ unit tests on its own pushes (`.github/workflows/test.yml`).
   disposable database, and it refuses `customer_management`.
 - **Integration** — `tests/run-integration.sh` boots the whole stack as project `cmtest` with
   `docker-compose.test.yml`, runs `tests/integration/*.test.js` through Kong on port 18080, then
-  `down -v`s that project only. `KEEP=1` leaves it up. It never touches the main stack's data.
+  `down -v`s that project only. `KEEP=1` leaves it up. `TEST_PROJECT` and the `TEST_*_PORT`
+  variables give a run its own project and ports, so two runs never share or tear down one stack
+  (they still share the CPU: run the browser suite on a quiet machine). It never touches the main stack's data.
   Outgoing mail goes to **Mailpit** (API on 18025) and replies are delivered into **GreenMail**
   (IMAP; SMTP on 13025) for email-service to read back, so sending, automations and receiving are
   all tested with real protocols and nothing leaves the machine. After the functional tests, a
@@ -212,37 +215,41 @@ serves traffic.
 
 ### Auth model
 
-- `identity-service` issues JWTs (`jsonwebtoken`) on login, signed with `JWT_SECRET` and carrying
-  `JWT_ISSUER` (default `omnicore-identity-service`). Both are shared across every service through
-  `.env`. All seven services read the issuer from the env var on verify, and identity-service reads
-  it when signing — several used to hardcode the literal, so the variable did nothing and changing
-  it broke auth in a partial, confusing way.
-- No service falls back to a default `JWT_SECRET`. Verification fails closed if it is unset; do not
-  reintroduce a fallback, since the development secret is committed to this repo.
-- JWT payload carries `sub` (user id), `organizationId`, `role`, and a `permissions` array.
-- Every other service's `middleware/authenticate.js` independently verifies the token (no calls
-  back to identity-service per-request) and populates `req.auth = { userId, organizationId, role,
-  permissions }`.
-- `middleware/requirePermission(permission)` is applied per-route and checks
-  `req.auth.permissions.includes(permission)` — RBAC permissions are baked into the JWT at login
-  time, not re-fetched.
+- **Ory Hydra issues every token** (`hydra`, config `hydra/hydra.yml`; its own `hydra` database,
+  created by the `migrations` runner and set up by `hydra-migrate`). Hydra has no login screen and
+  no users: the frontend's `/login` is its login page, and identity-service keeps the users and
+  passwords and tells Hydra who signed in. Kong routes only Hydra's public side (`/oauth2/`,
+  `/.well-known/`, `/userinfo`); **the admin port 4445 is never routed or published**. Lists,
+  booleans and hooks only work in `hydra.yml`, not as environment variables. `HYDRA_SERVE_FLAGS`
+  defaults to `--dev` for the http localhost issuer; a real deployment needs an HTTPS issuer
+  without it. Plan and later phases: `~/.claude/plans/auth-hardening-hydra.md`.
+- **Sign-in** is authorization code + PKCE with identity-service as the client `omnicore-web`
+  (registered on boot): `/auth/start` → Hydra → `/login?login_challenge` → `POST /auth/login` →
+  `/auth/consent` (auto-accepted for `omnicore-web` only) → `/auth/callback`. The **refresh token
+  lives in an httpOnly, SameSite=Strict cookie** on `/api/auth`; `POST /auth/refresh` rotates it
+  (10 s grace for a reload mid-refresh; reuse after that revokes the session) and returns a
+  5-minute **access token, held in the frontend's memory only**. `/auth/logout` revokes.
+- **There is no shared signing secret.** Every service's `middleware/verifyToken.js` (identical
+  copies, identical tests) accepts only RS256 tokens signed by a key from Hydra's JWKS
+  (`HYDRA_JWKS_URL`), with `iss` = `HYDRA_ISSUER` and `aud` including `omnicore-api`; anything
+  else is 401. identity-service signs nothing; setup gets the new admin's token from Hydra
+  (`oauthFlow.tokenForUser`). `SERVICE_JWT_SECRET` (obligation → email trigger) is separate.
+- Token claims: `sub` (user id), `username`, `organizationId`, `role`, `permissions` (and `guest`).
+  **One builder** (`identity-service/src/services/claims.js`) makes them for consent and for
+  Hydra's token hook (`POST /internal/token-hook`, not routed, shared `TOKEN_HOOK_SECRET`), which
+  **rebuilds them on every refresh**: a role or permission change reaches a signed-in user within
+  ~5 minutes, and a deactivated user's next refresh is refused. A refresh replaces the claims, so
+  the hook always returns the full set.
+- `middleware/authenticate.js` verifies independently (no per-request call to identity-service)
+  and populates `req.auth = { userId, organizationId, role, permissions }`;
+  `requirePermission(permission)` checks `req.auth.permissions.includes(permission)`.
 - Multi-tenancy: rows are scoped by `organization_id`, derived from `req.auth.organizationId`, not
   from client-supplied input.
-- **Moving to Ory Hydra (in progress, phases P0–P7, plan in
-  `~/.claude/plans/auth-hardening-hydra.md`).** Hydra (`hydra`, config `hydra/hydra.yml`;
-  `hydra-migrate` sets up its own `hydra` database, which the `migrations` runner creates) issues
-  RS256 access tokens and refresh tokens; it has no login screen and no users. The frontend's
-  `/login` is its login page, and identity-service tells it who signed in, keeps the users,
-  and registers the `omnicore-web` client on boot (`src/services/oauthClient.js`). Kong routes
-  only Hydra's public side (`/oauth2/`, `/.well-known/`, `/userinfo`); **the admin port 4445 is
-  never routed or published**. Lists, booleans and hooks only work in `hydra.yml`, not as
-  environment variables. `HYDRA_SERVE_FLAGS` defaults to `--dev` for the http localhost issuer;
-  a real deployment needs an HTTPS issuer without it. Until P2 lands, the bullets above still
-  describe the token every service accepts.
 
 #### Just-in-time access and guests
 
-Two things are deliberately **not** trusted from the token, because a JWT cannot be revoked:
+Two things are deliberately **not** trusted from the token, because an access token cannot be
+revoked before it expires:
 
 - `access_grants` rows are read **live on every request** by `middleware/accessGrants.js` and
   merged into `req.auth.permissions`. Revoking a grant takes effect immediately on an unchanged
@@ -251,7 +258,9 @@ Two things are deliberately **not** trusted from the token, because a JWT cannot
 - A grant to a `subject_email` with no account issues a one-time invite link. Redeeming it
   (`POST /access-grants/redeem`, the one unauthenticated route there) materialises a `users` row
   with `is_guest = true` and attaches the grant to it, so the normal lookup governs guests too.
-  Their JWT carries **zero baseline permissions**. Only a hash of the invite token is stored.
+  The link enters the Hydra sign-in flow (redeem takes the `login_challenge`); their token
+  carries **zero baseline permissions**, and a refresh is refused once no grant is left. Only a
+  hash of the invite token is stored.
 
 #### Where a permission is checked
 

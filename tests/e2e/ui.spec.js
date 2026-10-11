@@ -24,10 +24,10 @@ async function prepare(page, theme = "lemon") {
   }, theme);
 }
 
-// The login page starts Ory Hydra's flow and comes back with its challenge
-// (auth-hardening P1); the form is the same.
+// Opening the app signed out goes straight into Ory Hydra's flow, which
+// comes back to the login page with its challenge; the form is the same.
 async function signIn(page, { email, password } = ADMIN) {
-  await page.goto("/login");
+  await page.goto("/");
   await page.waitForURL(/login_challenge=/);
   await page.getByPlaceholder("you@company.com").fill(email);
   await page.getByPlaceholder("Enter your password").fill(password);
@@ -276,6 +276,25 @@ test("an automation's sending account is chosen on its form", async ({ page, req
 });
 
 // Last on purpose: it installs the CA bundle into the test organization.
+test("a guest opens an invite link and lands, signed in, on the screen they were given", async ({ page, request }) => {
+  const token = await apiToken(request, ADMIN);
+  const granted = await request.post(`${API}/access-grants`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: { subject_email: `e2e-guest-${Date.now()}@test.example`, permission_code: "leads.read", duration_minutes: 30, reason: "e2e" },
+  });
+  expect(granted.status()).toBe(201);
+  const { inviteToken } = await granted.json();
+
+  await prepare(page);
+  await page.goto(`/access/${inviteToken}`);
+  await page.getByRole("button", { name: "Continue as guest" }).click();
+
+  // Through Hydra's flow (no password): the login page redeems the invite.
+  await expect(page).toHaveURL(/\/leads$/, { timeout: 30000 });
+  await expect(page.getByRole("heading", { name: "Leads" })).toBeVisible();
+  await shot(page, "guest-signed-in");
+});
+
 test("a profession bundle is installed from Settings", async ({ page }) => {
   await prepare(page);
   await signIn(page);

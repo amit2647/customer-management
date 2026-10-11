@@ -20,19 +20,18 @@ describe("login", () => {
   });
 
   test("a wrong password is refused", async () => {
-    const { status } = await api("POST", "/auth/login", {
-      body: { email: ADMIN.email, password: "wrong-password" },
-    });
-
-    assert.equal(status, 401);
+    await assert.rejects(signIn(ADMIN.email, "wrong-password"), { status: 401 });
   });
 
   test("an unknown email is refused the same way", async () => {
-    const { status } = await api("POST", "/auth/login", {
-      body: { email: "nobody@test.example", password: "whatever-123" },
-    });
+    await assert.rejects(signIn("nobody@test.example", "whatever-123"), { status: 401 });
+  });
 
-    assert.equal(status, 401);
+  test("there is no sign-in outside the flow: no login_challenge is a 400, and no token", async () => {
+    const { status, body } = await api("POST", "/auth/login", { body: ADMIN });
+
+    assert.equal(status, 400);
+    assert.equal(body.token, undefined);
   });
 
   test("/auth/me describes the caller", async () => {
@@ -212,10 +211,34 @@ describe("sign-in through Hydra", () => {
     );
   });
 
-  test("the legacy HS256 login still works during this phase", async () => {
-    const { status, body } = await api("POST", "/auth/login", { body: ADMIN });
-    assert.equal(status, 200);
-    assert.equal(headerOf(body.token).alg, "HS256");
-    assert.equal((await api("GET", "/leads", { token: body.token })).status, 200);
+  test("an HS256 token signed with the old shared secret gets 401 from every service", async () => {
+    // The development JWT_SECRET every service accepted until P2, with a
+    // SUPER_ADMIN's claims: exactly what a leaked secret would let anyone mint.
+    const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url");
+    const now = Math.floor(Date.now() / 1000);
+    const payload = Buffer.from(
+      JSON.stringify({ sub: 1, organizationId: 1, role: "SUPER_ADMIN", permissions: ["system.settings", "leads.read"], iss: "omnicore-identity-service", iat: now, exp: now + 300 }),
+    ).toString("base64url");
+    const signature = require("crypto").createHmac("sha256", "omnicore-development-secret-change-this").update(`${header}.${payload}`).digest("base64url");
+    const forged = `${header}.${payload}.${signature}`;
+
+    // One route behind authenticate in each of the twelve services.
+    const routes = [
+      ["GET", "/leads"],
+      ["GET", "/customers"],
+      ["GET", "/services"],
+      ["GET", "/auth/me"],
+      ["GET", "/dashboard"],
+      ["GET", "/emails/templates"],
+      ["GET", "/assistant/conversations"],
+      ["GET", "/bundles/installed"],
+      ["GET", "/engagements/types"],
+      ["GET", "/obligations/rules"],
+      ["GET", "/documents/templates"],
+      ["POST", "/vault/files/sweep"],
+    ];
+    for (const [method, route] of routes) {
+      assert.equal((await api(method, route, { token: forged })).status, 401, `${method} ${route}`);
+    }
   });
 });

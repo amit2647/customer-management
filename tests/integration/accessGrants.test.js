@@ -98,10 +98,8 @@ describe("guest invites", () => {
   test("a guest cannot sign in with a password", async () => {
     await assert.rejects(signIn("guest@test.example", "anything-123"), { status: 401 });
 
-    const { status } = await api("POST", "/auth/login", {
-      body: { email: "guest@test.example", password: "anything-123" },
-    });
-    assert.equal(status, 401, "legacy login");
+    const { status } = await api("POST", "/access-grants/redeem", { body: { token: inviteToken } });
+    assert.equal(status, 400, "an invite redeemed outside the flow opens nothing");
   });
 
   test("the link can be reopened while the grant is active (another device, lost session)", async () => {
