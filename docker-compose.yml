@@ -833,17 +833,17 @@ services:
   frontend:
     build:
       context: ./frontend
+      args:
+        # Where the browser reaches Kong. Vite writes VITE_* into the bundle
+        # when the image is built, so a change here needs
+        # `docker compose up -d --build frontend` — it is not read at run time.
+        VITE_API_BASE_URL: "${VITE_API_BASE_URL:-http://localhost:${KONG_HOST_PORT:-8080}/api}"
     container_name: customer-management-frontend
     restart: unless-stopped
-    environment:
-      # Where the browser reaches Kong. Vite substitutes VITE_* at transform
-      # time, so the container must be rebuilt (or restarted) for a change here
-      # to reach the page — it is not read at request time.
-      VITE_API_BASE_URL: "${VITE_API_BASE_URL:-http://localhost:${KONG_HOST_PORT:-8080}/api}"
 
     ports:
-      # The container side is fixed: the frontend's own start script pins Vite
-      # to 3000.
+      # The container side is fixed: nginx in the frontend image listens on
+      # 3000 (frontend/nginx.conf).
       - "${FRONTEND_HOST_PORT:-3000}:3000"
     depends_on:
       kong:
