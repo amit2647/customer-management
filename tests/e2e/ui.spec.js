@@ -1,3 +1,4 @@
+const crypto = require("crypto");
 const { test, expect } = require("@playwright/test");
 
 const { apiToken } = require("./auth");
@@ -33,6 +34,37 @@ async function verificationLink(request, address) {
   }
 
   throw new Error(`no verification email reached ${address}`);
+}
+
+// A code as an authenticator app makes it (RFC 6238), from the Base32 key the
+// setup screen shows.
+function totp(secret, offset = 0) {
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+  const bits = [...secret.toUpperCase()].map((char) => alphabet.indexOf(char).toString(2).padStart(5, "0")).join("");
+  const key = Buffer.from(bits.match(/.{8}/g).map((byte) => parseInt(byte, 2)));
+  const counter = Buffer.alloc(8);
+  counter.writeBigUInt64BE(BigInt(Math.floor((Date.now() / 1000 + offset) / 30)));
+  const hmac = crypto.createHmac("sha1", key).update(counter).digest();
+  const at = hmac[hmac.length - 1] & 0xf;
+  return String((hmac.readUInt32BE(at) & 0x7fffffff) % 1000000).padStart(6, "0");
+}
+
+async function newConfirmedMember(page, request, roleCode = "SALES_REP") {
+  const token = await apiToken(request, ADMIN);
+  const email = `e2e-${roleCode.toLowerCase()}-${Date.now()}@test.example`;
+  const password = "Member-Pass-123!";
+  const created = await request.post(`${API}/users`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: { name: "Two Factor", email, password, roleCode },
+  });
+  expect(created.status()).toBe(201);
+
+  const link = new URL(await verificationLink(request, email));
+  await page.goto(`/verify-email${link.hash}`);
+  await page.getByRole("button", { name: "Confirm my email address" }).click();
+  await expect(page.getByRole("heading", { name: "Email address confirmed" })).toBeVisible();
+
+  return { email, password };
 }
 
 async function prepare(page, theme = "lemon") {
@@ -186,6 +218,40 @@ test("a screen without permission says so", async ({ page, request }) => {
 
   await expect(page.getByRole("heading", { name: /no access to this screen/i })).toBeVisible();
   await shot(page, "access-denied");
+});
+
+test("two-factor is set up on Profile, then asked for at the next sign-in", async ({ page, request, browser }) => {
+  await prepare(page);
+  const member = await newConfirmedMember(page, request);
+  await signIn(page, member);
+
+  await page.goto("/settings/profile");
+  await page.getByRole("button", { name: "Set up" }).click();
+  await expect(page.getByRole("img", { name: /QR code/ })).toBeVisible();
+  const secret = (await page.locator(".mfa-setup code").textContent()).trim();
+  await shot(page, "two-factor-setup");
+
+  await page.getByLabel("Code from the app").fill(totp(secret));
+  await page.getByRole("button", { name: "Turn on" }).click();
+  await expect(page.getByRole("list", { name: "Recovery codes" }).getByRole("listitem")).toHaveCount(10);
+  await expect(page.getByText(/On\. 10 recovery codes left/)).toBeVisible();
+
+  // A new device: no cookies.
+  const fresh = await browser.newContext();
+  const other = await fresh.newPage();
+  await prepare(other);
+  await other.goto("/");
+  await expect(other).toHaveURL(/\/login$/);
+  await other.getByPlaceholder("you@company.com").fill(member.email);
+  await other.getByPlaceholder("Enter your password").fill(member.password);
+  await other.locator("button.login-submit").click();
+
+  await expect(other.getByRole("heading", { name: "Enter your code" })).toBeVisible();
+  await shot(other, "two-factor-code");
+  await other.getByRole("textbox").fill(totp(secret, 30));
+  await other.getByRole("button", { name: "Verify" }).click();
+  await expect(other).not.toHaveURL(/\/login/);
+  await fresh.close();
 });
 
 test("a change proposed by the assistant is confirmed from its card", async ({ page, request }) => {

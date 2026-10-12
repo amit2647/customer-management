@@ -115,7 +115,9 @@ async function refresh(jar) {
 }
 
 // The full sign-in: { token, jar, landedOn }. The jar holds the refresh cookie.
-async function signIn(email, password) {
+// With two-factor (P5) the password answers with a step instead; `code(step)`
+// gives the code for it (else the sign-in fails with that step attached).
+async function signIn(email, password, { code } = {}) {
   const jar = new CookieJar();
   const challenge = await loginChallenge(jar);
 
@@ -124,7 +126,31 @@ async function signIn(email, password) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email, password, login_challenge: challenge }),
   });
-  const body = await login.json().catch(() => null);
+  let body = await login.json().catch(() => null);
+  let recoveryCodes;
+
+  if (login.status === 200 && body?.mfa) {
+    if (!code) {
+      const error = new Error(`login for ${email} needs a two-factor code (${body.mfa})`);
+      Object.assign(error, { status: 200, step: body });
+      throw error;
+    }
+
+    const second = await hop(jar, `${API}/auth/login/mfa`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mfa_token: body.mfaToken, code: await code(body), login_challenge: challenge }),
+    });
+    const answer = await second.json().catch(() => null);
+    if (second.status !== 200) {
+      const error = new Error(`two-factor code for ${email} refused: ${second.status} ${JSON.stringify(answer)}`);
+      Object.assign(error, { status: second.status, code: answer?.code });
+      throw error;
+    }
+    body = answer;
+    recoveryCodes = answer.recoveryCodes;
+  }
+
   if (login.status !== 200 || !body?.redirect_to) {
     const error = new Error(`login failed for ${email}: ${login.status} ${JSON.stringify(body)}`);
     error.status = login.status;
@@ -135,7 +161,25 @@ async function signIn(email, password) {
   const session = await refresh(jar);
   if (session.status !== 200) throw new Error(`refresh after sign-in failed: ${session.status} ${JSON.stringify(session.body)}`);
 
-  return { token: session.body.accessToken, jar, landedOn };
+  return { token: session.body.accessToken, jar, landedOn, recoveryCodes };
+}
+
+/*
+ * A TOTP code (RFC 6238: HMAC-SHA1, 30-second steps, 6 digits) from a Base32
+ * secret, as an authenticator app makes it — so the tests need no library.
+ * `offset` shifts the clock in seconds.
+ */
+function totp(secret, offset = 0) {
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+  let bits = "";
+  for (const char of secret.replace(/=+$/, "").toUpperCase()) bits += alphabet.indexOf(char).toString(2).padStart(5, "0");
+  const key = Buffer.from(bits.match(/.{8}/g).map((byte) => parseInt(byte, 2)));
+
+  const counter = Buffer.alloc(8);
+  counter.writeBigUInt64BE(BigInt(Math.floor((Date.now() / 1000 + offset) / 30)));
+  const hmac = crypto.createHmac("sha1", key).update(counter).digest();
+  const at = hmac[hmac.length - 1] & 0xf;
+  return String((hmac.readUInt32BE(at) & 0x7fffffff) % 1000000).padStart(6, "0");
 }
 
 async function login(email, password) {
@@ -335,4 +379,4 @@ async function caFirm(admin, label = "CA Firm") {
   return firm;
 }
 
-module.exports = { api, login, signIn, refresh, redeemInvite, confirmEmail, verificationToken, verificationLinks, hop, hydraCli, statusFromInside, CookieJar, GATEWAY, adminToken, createUser, organizationWithAdmin, caFirm, unique, uuid, modelCalls, waitFor, sql, ADMIN };
+module.exports = { api, login, signIn, totp, refresh, redeemInvite, confirmEmail, verificationToken, verificationLinks, hop, hydraCli, statusFromInside, CookieJar, GATEWAY, adminToken, createUser, organizationWithAdmin, caFirm, unique, uuid, modelCalls, waitFor, sql, ADMIN };

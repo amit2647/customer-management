@@ -57,7 +57,8 @@ container so the service that talks to an external model is not also holding the
 password. `VAULT_MASTER_KEY`, `S3_ACCESS_KEY`, `S3_SECRET_KEY` and `SERVICE_JWT_SECRET` are blanked there for the same
 reason; only vault-service may hold the first three, and only obligation-, identity- and
 email-service the last. `SYSTEM_SMTP_USER`/`SYSTEM_SMTP_PASSWORD` (the system mail account) are
-blanked too: email-service alone holds them. `HYDRA_SECRETS_SYSTEM`, `HYDRA_DB_PASSWORD`, `OAUTH_CLIENT_SECRET` and
+blanked too: email-service alone holds them. So is `MFA_ENCRYPTION_KEY` (two-factor secrets):
+identity-service alone. `HYDRA_SECRETS_SYSTEM`, `HYDRA_DB_PASSWORD`, `OAUTH_CLIENT_SECRET` and
 `TOKEN_HOOK_SECRET` are blanked too: the first two belong to Hydra (and the `migrate` runner,
 which creates Hydra's role), the third to identity-service only, the last to Hydra and
 identity-service. Any new secret in `.env` needs the same blanking.
@@ -253,6 +254,21 @@ serves traffic.
   token, scope `system-mail.send`; fixed kinds only, worded there) from the **system mail
   account** `SYSTEM_SMTP_*`. Without it nothing is mailed and an admin is handed the link to pass
   on (as with guest invites) — never the person themselves, or the address would not be proved.
+- **Two-factor sign-in** (P5): authenticator-app codes (TOTP via `otplib` v13, 30-s steps, one
+  step of drift either way) plus ten one-time recovery codes (bcrypt). The secret is AES-256-GCM
+  under `MFA_ENCRYPTION_KEY`, bound to the user id (identity-service only; a dev default exists;
+  without a valid key two-factor answers 503). `identity-service/src/services/mfa.js` holds it
+  all. A correct password with two-factor on returns `{ mfa: "verify", mfaToken }` instead of
+  accepting the Hydra login; `POST /auth/login/mfa` takes the code and only then accepts it
+  (`amr` `["pwd","otp"]` or `["pwd","recovery"]`). The `mfaToken` is HMAC-signed, 10 minutes,
+  tied to that Hydra challenge. A code is checked under a row lock and its step recorded
+  (`mfa_last_step`), so it works once; five wrong codes lock two-factor for 15 minutes
+  (`mfa_locked_until`, `code: "mfa_locked"`). `organizations.require_mfa` (Settings →
+  Organization, `system.settings`, audited) makes someone without it set it up at sign-in
+  (`mfa: "enrol"` with the QR) and stops anyone switching it off. Profile → Two-factor sign-in
+  sets up, renews recovery codes and switches off (each needs a code); Users → "Reset
+  two-factor" (`system.settings`, audited as `user.mfa_reset`) also ends their sessions.
+  Migration 024. Integration tests make codes with `lib.totp()` (RFC 6238, no library).
 - **There is no shared signing secret.** Every service's `middleware/verifyToken.js` (identical
   copies, identical tests) accepts only RS256 tokens signed by a key from Hydra's JWKS
   (`HYDRA_JWKS_URL`), with `iss` = `HYDRA_ISSUER` and `aud` including `omnicore-api`; anything

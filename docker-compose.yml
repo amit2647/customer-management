@@ -354,6 +354,10 @@ services:
       # token for that one route.
       EMAIL_SERVICE_URL: "http://email-service:${EMAIL_SERVICE_PORT:-4006}"
       SERVICE_JWT_SECRET: "${SERVICE_JWT_SECRET:-omnicore-development-service-secret-change-this}"
+      # Encrypts each person's two-factor secret (P5): 32 bytes, base64. The
+      # default is for development only; losing a real one switches off
+      # everyone's two-factor (they set it up again).
+      MFA_ENCRYPTION_KEY: "${MFA_ENCRYPTION_KEY:-b21uaWNvcmUtZGV2LW1mYS1rZXktY2hhbmdlLXRoaXM=}" # gitleaks:allow (public development default)
     depends_on:
       postgres:
         condition: service_healthy
@@ -563,6 +567,8 @@ services:
       HYDRA_DB_PASSWORD: ""
       OAUTH_CLIENT_SECRET: ""
       TOKEN_HOOK_SECRET: ""
+      # Two-factor secrets' key: identity-service only.
+      MFA_ENCRYPTION_KEY: ""
       # The system mail account: email-service only.
       SYSTEM_SMTP_USER: ""
       SYSTEM_SMTP_PASSWORD: ""
