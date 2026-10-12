@@ -37,14 +37,19 @@ services:
   hydra-migrate:
     container_name: !reset null
 
-  # The issuer and redirect URLs follow this stack's gateway port.
+  # The issuer and redirect URLs follow this stack's gateway port, on both of
+  # Hydra's processes (the admin side builds the redirects).
   hydra:
     container_name: !reset null
-    environment:
+    environment: &test-hydra-urls
       URLS_SELF_ISSUER: "http://localhost:${TEST_KONG_PORT:-18080}/"
       URLS_LOGIN: "http://localhost:${TEST_UI_PORT:-13000}/login"
       URLS_CONSENT: "http://localhost:${TEST_KONG_PORT:-18080}/api/auth/consent"
       URLS_LOGOUT: "http://localhost:${TEST_KONG_PORT:-18080}/api/auth/logout"
+
+  hydra-admin:
+    container_name: !reset null
+    environment: *test-hydra-urls
 
   service-service:
     container_name: !reset null
@@ -63,6 +68,9 @@ services:
     ports: !reset []
     environment:
       OAUTH_REDIRECT_URI: "http://localhost:${TEST_KONG_PORT:-18080}/api/auth/callback"
+      # Every test signs in from one address, many times a minute; the rate
+      # limit is proven with its own address (hardening.test.js).
+      AUTH_RATE_LIMIT_PER_MINUTE: "1000"
 
   dashboard-service:
     container_name: !reset null
@@ -144,6 +152,8 @@ services:
     build:
       args:
         VITE_API_BASE_URL: "http://localhost:${TEST_KONG_PORT:-18080}/api"
+    environment:
+      API_ORIGIN: "http://localhost:${TEST_KONG_PORT:-18080}"
     ports: !override
       - "${TEST_UI_PORT:-13000}:3000"
 

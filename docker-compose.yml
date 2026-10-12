@@ -11,6 +11,32 @@
 #     separate submodule and is not templated. Changing a *_SERVICE_PORT here
 #     means editing kong.yml to match, or the gateway will route to a dead port.
 
+# Hydra's settings, shared by its public and admin processes (both build the
+# same URLs and read the same database and secret).
+x-hydra-environment: &hydra-environment
+  DSN: "postgres://${HYDRA_DB_USER:-hydra}:${HYDRA_DB_PASSWORD:-hydra_development_password}@${DB_HOST:-postgres}:${DB_PORT:-5432}/${HYDRA_DB_NAME:-hydra}?sslmode=disable"
+  # Encrypts Hydra's data at rest. Like every secret here, a development default
+  # keeps a fresh clone booting; a real deployment sets its own.
+  SECRETS_SYSTEM: "${HYDRA_SECRETS_SYSTEM:-omnicore-development-hydra-secret-change-this}"
+  # The public URL, through Kong. Tokens carry it as `iss`.
+  URLS_SELF_ISSUER: "http://localhost:${KONG_HOST_PORT:-8080}/"
+  # Our login page (the frontend) and identity-service's consent route.
+  URLS_LOGIN: "${PUBLIC_APP_URL:-http://localhost:3000}/login"
+  URLS_CONSENT: "http://localhost:${KONG_HOST_PORT:-8080}/api/auth/consent"
+  URLS_LOGOUT: "http://localhost:${KONG_HOST_PORT:-8080}/api/auth/logout"
+  # Signed JWT access tokens (verified per request against Hydra's JWKS in P1).
+  STRATEGIES_ACCESS_TOKEN: "jwt"
+  TTL_ACCESS_TOKEN: "${HYDRA_TTL_ACCESS_TOKEN:-5m}"
+  # Each refresh issues a token with a fresh lifetime: this is the idle
+  # timeout. identity-service caps a session's total age (AUTH_SESSION_MAX_AGE).
+  TTL_REFRESH_TOKEN: "${HYDRA_TTL_REFRESH_TOKEN:-168h}"
+  # The token hook (declared in hydra.yml): identity-service rebuilds the
+  # claims on every refresh. Its URL and shared secret come from here.
+  OAUTH2_TOKEN_HOOK_URL: "http://identity-service:${IDENTITY_SERVICE_PORT:-4004}/internal/token-hook"
+  OAUTH2_TOKEN_HOOK_AUTH_CONFIG_VALUE: "${TOKEN_HOOK_SECRET:-omnicore-development-token-hook-secret-change-this}"
+  # No anonymous usage reporting to Ory.
+  SQA_OPT_OUT: "true"
+
 # Settings every Node service reads, merged into each one's environment below
 # with `<<: *service-settings`. The defaults are the values the code ships with.
 x-service-settings: &service-settings
@@ -38,6 +64,10 @@ services:
       POSTGRES_PASSWORD: "${DB_PASSWORD:-app_password}"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    # hydra-admin reaches its database over the internal network.
+    networks:
+      - default
+      - hydra-admin
     healthcheck:
       test:
         [
@@ -174,39 +204,22 @@ services:
   # /userinfo. The admin API (4445) can create clients and accept logins, so
   # it is never published and never routed; only identity-service calls it,
   # on the Docker network.
+  # Hydra runs as two processes on one database and one config: the public
+  # side (sign-in, tokens, JWKS — routed by Kong) and the admin side (accepting
+  # logins and consents, revoking sessions, managing clients). The admin side
+  # can sign anyone in, and it has no authentication of its own, so it sits on
+  # the internal `hydra-admin` network, which only identity-service, Postgres
+  # and it join: no other container can reach it (auth hardening P6).
   hydra:
     image: oryd/hydra:v26.2.0
     container_name: customer-management-hydra
     restart: unless-stopped
     # --dev allows the plain-http issuer and redirect URLs of a local stack.
     # A deployment behind HTTPS sets HYDRA_SERVE_FLAGS to empty.
-    command: serve all -c /etc/config/hydra/hydra.yml ${HYDRA_SERVE_FLAGS---dev}
-    environment:
-      DSN: "postgres://${HYDRA_DB_USER:-hydra}:${HYDRA_DB_PASSWORD:-hydra_development_password}@${DB_HOST:-postgres}:${DB_PORT:-5432}/${HYDRA_DB_NAME:-hydra}?sslmode=disable"
-      # Encrypts Hydra's data at rest. Like every secret here, a development default
-      # keeps a fresh clone booting; a real deployment sets its own.
-      SECRETS_SYSTEM: "${HYDRA_SECRETS_SYSTEM:-omnicore-development-hydra-secret-change-this}"
-      # The public URL, through Kong. Tokens carry it as `iss`.
-      URLS_SELF_ISSUER: "http://localhost:${KONG_HOST_PORT:-8080}/"
-      # P1: our login page (the frontend) and identity-service's consent route.
-      # Nothing sends anyone here yet, so they may 404 until then.
-      URLS_LOGIN: "${PUBLIC_APP_URL:-http://localhost:3000}/login"
-      URLS_CONSENT: "http://localhost:${KONG_HOST_PORT:-8080}/api/auth/consent"
-      URLS_LOGOUT: "http://localhost:${KONG_HOST_PORT:-8080}/api/auth/logout"
-      # Signed JWT access tokens (verified per request against Hydra's JWKS in P1).
-      STRATEGIES_ACCESS_TOKEN: "jwt"
-      TTL_ACCESS_TOKEN: "${HYDRA_TTL_ACCESS_TOKEN:-5m}"
-      # Each refresh issues a token with a fresh lifetime: this is the idle
-      # timeout. identity-service caps a session's total age (AUTH_SESSION_MAX_AGE).
-      TTL_REFRESH_TOKEN: "${HYDRA_TTL_REFRESH_TOKEN:-168h}"
-      # The token hook (declared in hydra.yml): identity-service rebuilds the
-      # claims on every refresh. Its URL and shared secret come from here.
-      OAUTH2_TOKEN_HOOK_URL: "http://identity-service:${IDENTITY_SERVICE_PORT:-4004}/internal/token-hook"
-      OAUTH2_TOKEN_HOOK_AUTH_CONFIG_VALUE: "${TOKEN_HOOK_SECRET:-omnicore-development-token-hook-secret-change-this}"
-      # No anonymous usage reporting to Ory.
-      SQA_OPT_OUT: "true"
-    # Policy that is the same everywhere (PKCE, later the token hook and the
-    # top-level claims). See the file for why those are not env vars.
+    command: serve public -c /etc/config/hydra/hydra.yml ${HYDRA_SERVE_FLAGS---dev}
+    environment: *hydra-environment
+    # Policy that is the same everywhere (PKCE, the token hook, the top-level
+    # claims). See the file for why those are not env vars.
     volumes:
       - ./hydra/hydra.yml:/etc/config/hydra/hydra.yml:ro
     depends_on:
@@ -214,6 +227,26 @@ services:
         condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:4444/health/ready || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 5s
+
+  hydra-admin:
+    image: oryd/hydra:v26.2.0
+    container_name: customer-management-hydra-admin
+    restart: unless-stopped
+    command: serve admin -c /etc/config/hydra/hydra.yml ${HYDRA_SERVE_FLAGS---dev}
+    environment: *hydra-environment
+    volumes:
+      - ./hydra/hydra.yml:/etc/config/hydra/hydra.yml:ro
+    networks:
+      - hydra-admin
+    depends_on:
+      hydra-migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:4445/health/ready || exit 1"]
       interval: 5s
       timeout: 5s
       retries: 20
@@ -361,6 +394,12 @@ services:
       MFA_MAX_FAILED_CODES: "${MFA_MAX_FAILED_CODES:-5}"
       MFA_LOCK_MINUTES: "${MFA_LOCK_MINUTES:-15}"
       MFA_RECOVERY_CODES: "${MFA_RECOVERY_CODES:-10}"
+      # Wrong passwords in a row before an account locks, and for how long;
+      # sign-in requests per minute per address; history rows shown (P6).
+      LOGIN_MAX_FAILED_ATTEMPTS: "${LOGIN_MAX_FAILED_ATTEMPTS:-10}"
+      LOGIN_LOCK_MINUTES: "${LOGIN_LOCK_MINUTES:-15}"
+      AUTH_RATE_LIMIT_PER_MINUTE: "${AUTH_RATE_LIMIT_PER_MINUTE:-30}"
+      AUTH_EVENTS_SHOWN: "${AUTH_EVENTS_SHOWN:-50}"
       # Browser origins allowed to call it with the refresh cookie (comma-
       # separated); unset, the app's own address. And the cookie's path.
       CORS_ORIGINS: "${CORS_ORIGINS:-}"
@@ -381,7 +420,7 @@ services:
       # Its own OAuth client in Hydra, upserted on boot through the admin API
       # (src/services/oauthClient.js). Only this service holds the client
       # secret or reaches the admin API.
-      HYDRA_ADMIN_URL: "http://hydra:4445"
+      HYDRA_ADMIN_URL: "http://hydra-admin:4445"
       OAUTH_CLIENT_ID: "${OAUTH_CLIENT_ID:-omnicore-web}"
       OAUTH_CLIENT_SECRET: "${OAUTH_CLIENT_SECRET:-omnicore-development-oauth-secret-change-this}"
       OAUTH_REDIRECT_URI: "http://localhost:${KONG_HOST_PORT:-8080}/api/auth/callback"
@@ -404,6 +443,10 @@ services:
       # default is for development only; losing a real one switches off
       # everyone's two-factor (they set it up again).
       MFA_ENCRYPTION_KEY: "${MFA_ENCRYPTION_KEY:-b21uaWNvcmUtZGV2LW1mYS1rZXktY2hhbmdlLXRoaXM=}" # gitleaks:allow (public development default)
+    # The only service on the internal network with Hydra's admin side.
+    networks:
+      - default
+      - hydra-admin
     depends_on:
       postgres:
         condition: service_healthy
@@ -950,6 +993,11 @@ services:
         VITE_MAX_UPLOAD_MB: "${VAULT_MAX_FILE_MB:-25}"
     container_name: customer-management-frontend
     restart: unless-stopped
+    environment:
+      # The gateway's origin, for the Content-Security-Policy's connect-src
+      # (frontend/security-headers.conf): the origin of VITE_API_BASE_URL. Set
+      # it with that one when the gateway is elsewhere.
+      API_ORIGIN: "${API_ORIGIN:-http://localhost:${KONG_HOST_PORT:-8080}}"
 
     ports:
       # The container side is fixed: nginx in the frontend image listens on
@@ -958,6 +1006,13 @@ services:
     depends_on:
       kong:
         condition: service_started
+
+networks:
+  default: {}
+  # Hydra's admin API, identity-service and Postgres only. `internal`: no route
+  # out, and nothing else attached.
+  hydra-admin:
+    internal: true
 
 volumes:
   postgres_data:

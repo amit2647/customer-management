@@ -218,11 +218,12 @@ function statusFromInside(service, url, { method = "GET", headers = {}, body } =
   return Number(result.stdout.trim());
 }
 
-// Hydra's own CLI inside the cmtest stack (its admin API is not published).
+// Hydra's own CLI inside the cmtest stack, run in the admin process: the only
+// place its admin API listens (auth hardening P6).
 function hydraCli(...args) {
   const result = spawnSync(
     "docker",
-    ["compose", "-p", process.env.TEST_PROJECT || "cmtest", "-f", "docker-compose.yml", "-f", "docker-compose.test.yml", "exec", "-T", "hydra", "hydra", ...args, "--endpoint", "http://localhost:4445"],
+    ["compose", "-p", process.env.TEST_PROJECT || "cmtest", "-f", "docker-compose.yml", "-f", "docker-compose.test.yml", "exec", "-T", "hydra-admin", "hydra", ...args, "--endpoint", "http://localhost:4445"],
     { cwd: path.join(__dirname, "..", ".."), encoding: "utf8" },
   );
   if (result.status !== 0) throw new Error(`hydra ${args[0]} failed: ${result.stderr || result.stdout}`);

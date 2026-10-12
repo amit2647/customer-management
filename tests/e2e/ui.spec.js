@@ -86,6 +86,16 @@ async function signIn(page, { email, password } = ADMIN) {
   await expect(page).not.toHaveURL(/\/login/);
 }
 
+test("the app's pages carry a strict Content-Security-Policy and cannot be framed", async ({ request }) => {
+  const response = await request.get("/login");
+  const policy = response.headers()["content-security-policy"];
+
+  expect(policy).toContain("script-src 'self'");
+  expect(policy).toContain("frame-ancestors 'none'");
+  expect(policy).not.toContain("'unsafe-eval'");
+  expect(response.headers()["x-frame-options"]).toBe("DENY");
+});
+
 test("signing in lands on the dashboard", async ({ page }) => {
   await prepare(page);
   await signIn(page);

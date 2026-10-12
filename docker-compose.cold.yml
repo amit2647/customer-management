@@ -30,6 +30,9 @@ services:
   hydra:
     container_name: !reset null
 
+  hydra-admin:
+    container_name: !reset null
+
   service-service:
     container_name: !reset null
     ports: !reset []

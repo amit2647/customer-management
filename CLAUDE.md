@@ -234,8 +234,12 @@ serves traffic.
 - **Ory Hydra issues every token** (`hydra`, config `hydra/hydra.yml`; its own `hydra` database,
   created by the `migrations` runner and set up by `hydra-migrate`). Hydra has no login screen and
   no users: the frontend's `/login` is its login page, and identity-service keeps the users and
-  passwords and tells Hydra who signed in. Kong routes only Hydra's public side (`/oauth2/`,
-  `/.well-known/`, `/userinfo`); **the admin port 4445 is never routed or published**. Lists,
+  passwords and tells Hydra who signed in. Hydra runs as **two containers** on one database and
+  config (`x-hydra-environment`): `hydra` (`serve public`, the only one Kong routes: `/oauth2/`,
+  `/.well-known/`, `/userinfo`) and `hydra-admin` (`serve admin`, port 4445), which sits on the
+  **internal `hydra-admin` network with only identity-service and Postgres** — its API has no
+  authentication and can sign anyone in, so no other container may reach it (P6). Tests reach
+  it through `lib.hydraCli()` (exec into `hydra-admin`). Lists,
   booleans and hooks only work in `hydra.yml`, not as environment variables. `HYDRA_SERVE_FLAGS`
   defaults to `--dev` for the http localhost issuer; a real deployment needs an HTTPS issuer
   without it. Plan and later phases: `~/.claude/plans/auth-hardening-hydra.md`.
@@ -283,6 +287,21 @@ serves traffic.
   sets up, renews recovery codes and switches off (each needs a code); Users → "Reset
   two-factor" (`system.settings`, audited as `user.mfa_reset`) also ends their sessions.
   Migration 024. Integration tests make codes with `lib.totp()` (RFC 6238, no library).
+- **Hardening** (P6): ten wrong passwords in a row lock an account for 15 minutes
+  (`LOGIN_MAX_FAILED_ATTEMPTS`, `LOGIN_LOCK_MINUTES`; 429 `account_locked`, checked before the
+  password). Each public sign-in endpoint (password, code, email links, setup, invite redeem) is
+  rate limited per address (`middleware/rateLimit.js`, `AUTH_RATE_LIMIT_PER_MINUTE`, 429
+  `rate_limited`); identity-service trusts exactly **one** proxy hop, so `req.ip` is the address
+  Kong appended and a client cannot forge it. The test stack raises the limit to 1000.
+  `auth_events` (migration 025, plain ids) records sign-ins, wrong passwords, lockouts,
+  two-factor changes, sign-outs, email confirmations and password changes
+  (`services/authEvents.js`, never failing the request); Profile → Sign-in activity
+  (`GET /profile/activity`) and Users → Activity (`GET /users/:id/activity`, `system.settings`).
+  Security headers: the web app's nginx sends a strict CSP (scripts only from itself; `API_ORIGIN`
+  fills `connect-src` through nginx's template) from `frontend/security-headers.conf`, included
+  in **every** location (a location's own `add_header` drops the server's); Kong adds
+  `default-src 'none'` and `nosniff` to every API answer. Production checklist:
+  `docs/production.md`.
 - **There is no shared signing secret.** Every service's `middleware/verifyToken.js` (identical
   copies, identical tests) accepts only RS256 tokens signed by a key from Hydra's JWKS
   (`HYDRA_JWKS_URL`), with `iss` = `HYDRA_ISSUER` and `aud` including `omnicore-api`; anything
