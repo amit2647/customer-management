@@ -11,6 +11,22 @@
 #     separate submodule and is not templated. Changing a *_SERVICE_PORT here
 #     means editing kong.yml to match, or the gateway will route to a dead port.
 
+# Settings every Node service reads, merged into each one's environment below
+# with `<<: *service-settings`. The defaults are the values the code ships with.
+x-service-settings: &service-settings
+  # The audience every service requires in Hydra's tokens (identity-service
+  # registers its client with it).
+  OAUTH_AUDIENCE: "${OAUTH_AUDIENCE:-omnicore-api}"
+  # How long a call onto another service, or Hydra, may take.
+  SERVICE_CALL_TIMEOUT_MS: "${SERVICE_CALL_TIMEOUT_MS:-10000}"
+  # How long a service remembers an organization's installed bundle.
+  BUNDLE_CACHE_TTL_MS: "${BUNDLE_CACHE_TTL_MS:-60000}"
+  # The product's name where people see it: authenticator apps, account mail.
+  APP_NAME: "${APP_NAME:-OmniCore}"
+  # Lead-, customer- and engagement-service's call to queue an automation.
+  AUTOMATION_NOTIFY_ATTEMPTS: "${AUTOMATION_NOTIFY_ATTEMPTS:-2}"
+  AUTOMATION_NOTIFY_TIMEOUT_MS: "${AUTOMATION_NOTIFY_TIMEOUT_MS:-3000}"
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -108,6 +124,11 @@ services:
     # Must not inherit a restart policy: this container is expected to exit 0.
     restart: "no"
     environment:
+      # The bootstrap admin's password rules and the setup code's lifetime,
+      # shared with identity-service.
+      BCRYPT_COST: "${BCRYPT_COST:-12}"
+      ADMIN_PASSWORD_MIN_LENGTH: "${ADMIN_PASSWORD_MIN_LENGTH:-12}"
+      SETUP_CODE_TTL_HOURS: "${SETUP_CODE_TTL_HOURS:-24}"
       DB_HOST: "${DB_HOST:-postgres}"
       DB_PORT: "${DB_PORT:-5432}"
       DB_NAME: "${DB_NAME:-customer_management}"
@@ -205,6 +226,7 @@ services:
     ports:
       - "${SERVICE_SERVICE_HOST_PORT:-4003}:${SERVICE_SERVICE_PORT:-4003}"
     environment:
+      <<: *service-settings
       PORT: "${SERVICE_SERVICE_PORT:-4003}"
       DB_HOST: "${DB_HOST:-postgres}"
       DB_PORT: "${DB_PORT:-5432}"
@@ -238,6 +260,10 @@ services:
     ports:
       - "${CUSTOMER_SERVICE_HOST_PORT:-4002}:${CUSTOMER_SERVICE_PORT:-4002}"
     environment:
+      <<: *service-settings
+      # Client CSV import: rows per file and the file's size.
+      CSV_IMPORT_MAX_ROWS: "${CSV_IMPORT_MAX_ROWS:-1000}"
+      CSV_IMPORT_MAX_MB: "${CSV_IMPORT_MAX_MB:-2}"
       PORT: "${CUSTOMER_SERVICE_PORT:-4002}"
       DB_HOST: "${DB_HOST:-postgres}"
       DB_PORT: "${DB_PORT:-5432}"
@@ -277,6 +303,7 @@ services:
     ports:
       - "${LEAD_SERVICE_HOST_PORT:-4001}:${LEAD_SERVICE_PORT:-4001}"
     environment:
+      <<: *service-settings
       PORT: "${LEAD_SERVICE_PORT:-4001}"
       DB_HOST: "${DB_HOST:-postgres}"
       DB_PORT: "${DB_PORT:-5432}"
@@ -319,6 +346,25 @@ services:
     ports:
       - "${IDENTITY_SERVICE_HOST_PORT:-4004}:${IDENTITY_SERVICE_PORT:-4004}"
     environment:
+      <<: *service-settings
+      # Passwords and their hashing (the seed reads the same three).
+      BCRYPT_COST: "${BCRYPT_COST:-12}"
+      PASSWORD_MIN_LENGTH: "${PASSWORD_MIN_LENGTH:-8}"
+      ADMIN_PASSWORD_MIN_LENGTH: "${ADMIN_PASSWORD_MIN_LENGTH:-12}"
+      # Lifetimes and limits of sign-in, setup, verification and access grants.
+      EMAIL_VERIFICATION_TTL_HOURS: "${EMAIL_VERIFICATION_TTL_HOURS:-24}"
+      SETUP_CODE_TTL_HOURS: "${SETUP_CODE_TTL_HOURS:-24}"
+      SETUP_MAX_FAILED_ATTEMPTS: "${SETUP_MAX_FAILED_ATTEMPTS:-10}"
+      SETUP_BUNDLE_INSTALL_TIMEOUT_MS: "${SETUP_BUNDLE_INSTALL_TIMEOUT_MS:-120000}"
+      ACCESS_GRANT_MAX_MINUTES: "${ACCESS_GRANT_MAX_MINUTES:-1440}"
+      SIGN_IN_STEP_TTL_MINUTES: "${SIGN_IN_STEP_TTL_MINUTES:-10}"
+      MFA_MAX_FAILED_CODES: "${MFA_MAX_FAILED_CODES:-5}"
+      MFA_LOCK_MINUTES: "${MFA_LOCK_MINUTES:-15}"
+      MFA_RECOVERY_CODES: "${MFA_RECOVERY_CODES:-10}"
+      # Browser origins allowed to call it with the refresh cookie (comma-
+      # separated); unset, the app's own address. And the cookie's path.
+      CORS_ORIGINS: "${CORS_ORIGINS:-}"
+      AUTH_COOKIE_PATH: "${AUTH_COOKIE_PATH:-/api/auth}"
       PORT: "${IDENTITY_SERVICE_PORT:-4004}"
       DB_HOST: "${DB_HOST:-postgres}"
       DB_PORT: "${DB_PORT:-5432}"
@@ -382,6 +428,9 @@ services:
     ports:
       - "${DASHBOARD_SERVICE_HOST_PORT:-4005}:${DASHBOARD_SERVICE_PORT:-4005}"
     environment:
+      <<: *service-settings
+      # How long figures are cached per caller.
+      DASHBOARD_CACHE_SECONDS: "${DASHBOARD_CACHE_SECONDS:-30}"
       PORT: "${DASHBOARD_SERVICE_PORT:-4005}"
 
       # Needed only to read active access grants when authenticating a request.
@@ -438,6 +487,15 @@ services:
       - "${EMAIL_SERVICE_HOST_PORT:-4006}:${EMAIL_SERVICE_PORT:-4006}"
 
     environment:
+      <<: *service-settings
+      # The automation runner: how often it looks, how many it takes, how many
+      # tries an email gets; how often IMAP receivers are reconciled.
+      AUTOMATION_POLL_INTERVAL_MS: "${AUTOMATION_POLL_INTERVAL_MS:-10000}"
+      AUTOMATION_BATCH_SIZE: "${AUTOMATION_BATCH_SIZE:-10}"
+      AUTOMATION_MAX_ATTEMPTS: "${AUTOMATION_MAX_ATTEMPTS:-5}"
+      EMAIL_RECEIVER_SYNC_MS: "${EMAIL_RECEIVER_SYNC_MS:-60000}"
+      # The domain in outgoing Message-IDs; unset, the sending account's.
+      EMAIL_MESSAGE_ID_DOMAIN: "${EMAIL_MESSAGE_ID_DOMAIN:-}"
       PORT: "${EMAIL_SERVICE_PORT:-4006}"
 
       # PostgreSQL
@@ -512,6 +570,7 @@ services:
         required: false
 
     environment:
+      <<: *service-settings
       PORT: "${ASSISTANT_SERVICE_PORT:-4007}"
 
       # Only used to read active just-in-time grants when authenticating.
@@ -618,6 +677,10 @@ services:
     ports:
       - "${BUNDLE_SERVICE_HOST_PORT:-4008}:${BUNDLE_SERVICE_PORT:-4008}"
     environment:
+      <<: *service-settings
+      # An install's lease (stale after this) and one step's time limit.
+      BUNDLE_INSTALL_LEASE_MS: "${BUNDLE_INSTALL_LEASE_MS:-120000}"
+      BUNDLE_STEP_TIMEOUT_MS: "${BUNDLE_STEP_TIMEOUT_MS:-30000}"
       PORT: "${BUNDLE_SERVICE_PORT:-4008}"
       DB_HOST: "${DB_HOST:-postgres}"
       DB_PORT: "${DB_PORT:-5432}"
@@ -661,6 +724,7 @@ services:
     ports:
       - "${ENGAGEMENT_SERVICE_HOST_PORT:-4009}:${ENGAGEMENT_SERVICE_PORT:-4009}"
     environment:
+      <<: *service-settings
       PORT: "${ENGAGEMENT_SERVICE_PORT:-4009}"
       DB_HOST: "${DB_HOST:-postgres}"
       DB_PORT: "${DB_PORT:-5432}"
@@ -698,6 +762,13 @@ services:
     ports:
       - "${OBLIGATION_SERVICE_HOST_PORT:-4010}:${OBLIGATION_SERVICE_PORT:-4010}"
     environment:
+      <<: *service-settings
+      # Deadlines: "due soon" within this many days; reminders this many days
+      # before, overdue ones for this many days after; deadlines per pass.
+      OBLIGATION_DUE_SOON_DAYS: "${OBLIGATION_DUE_SOON_DAYS:-30}"
+      OBLIGATION_REMINDER_DAYS: "${OBLIGATION_REMINDER_DAYS:-7}"
+      OBLIGATION_OVERDUE_WINDOW_DAYS: "${OBLIGATION_OVERDUE_WINDOW_DAYS:-30}"
+      OBLIGATION_REMINDER_BATCH: "${OBLIGATION_REMINDER_BATCH:-200}"
       PORT: "${OBLIGATION_SERVICE_PORT:-4010}"
       DB_HOST: "${DB_HOST:-postgres}"
       DB_PORT: "${DB_PORT:-5432}"
@@ -736,6 +807,7 @@ services:
     ports:
       - "${DOCUMENT_SERVICE_HOST_PORT:-4011}:${DOCUMENT_SERVICE_PORT:-4011}"
     environment:
+      <<: *service-settings
       PORT: "${DOCUMENT_SERVICE_PORT:-4011}"
       DB_HOST: "${DB_HOST:-postgres}"
       DB_PORT: "${DB_PORT:-5432}"
@@ -770,6 +842,15 @@ services:
     ports:
       - "${VAULT_SERVICE_HOST_PORT:-4012}:${VAULT_SERVICE_PORT:-4012}"
     environment:
+      <<: *service-settings
+      # Uploads: the largest file (Kong's own limit in kong/kong.yml is 26 MB).
+      VAULT_MAX_FILE_MB: "${VAULT_MAX_FILE_MB:-25}"
+      # Password reveals per person per window, and how often deleted files'
+      # objects are swept from the store.
+      VAULT_REVEALS_PER_WINDOW: "${VAULT_REVEALS_PER_WINDOW:-10}"
+      VAULT_REVEAL_WINDOW_MS: "${VAULT_REVEAL_WINDOW_MS:-600000}"
+      VAULT_SWEEP_INTERVAL_MS: "${VAULT_SWEEP_INTERVAL_MS:-600000}"
+      S3_REGION: "${S3_REGION:-us-east-1}"
       PORT: "${VAULT_SERVICE_PORT:-4012}"
       DB_HOST: "${DB_HOST:-postgres}"
       DB_PORT: "${DB_PORT:-5432}"
@@ -862,6 +943,11 @@ services:
         # when the image is built, so a change here needs
         # `docker compose up -d --build frontend` — it is not read at run time.
         VITE_API_BASE_URL: "${VITE_API_BASE_URL:-http://localhost:${KONG_HOST_PORT:-8080}/api}"
+        # The rules the services enforce, so forms can state them; the same
+        # .env values identity- and vault-service read.
+        VITE_PASSWORD_MIN_LENGTH: "${PASSWORD_MIN_LENGTH:-8}"
+        VITE_ADMIN_PASSWORD_MIN_LENGTH: "${ADMIN_PASSWORD_MIN_LENGTH:-12}"
+        VITE_MAX_UPLOAD_MB: "${VAULT_MAX_FILE_MB:-25}"
     container_name: customer-management-frontend
     restart: unless-stopped
 

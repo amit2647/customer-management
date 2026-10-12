@@ -63,6 +63,20 @@ identity-service alone. `HYDRA_SECRETS_SYSTEM`, `HYDRA_DB_PASSWORD`, `OAUTH_CLIE
 which creates Hydra's role), the third to identity-service only, the last to Hydra and
 identity-service. Any new secret in `.env` needs the same blanking.
 
+**Tuning** (limits, lifetimes, timeouts, batch sizes, cache times, password rules, `APP_NAME`)
+is configurable too, never a bare literal in code: `.env.example`'s **TUNING** section lists every
+value with its shipped default. Settings several services read sit in one compose anchor,
+`x-service-settings`, merged into each Node service's `environment:` with `<<:
+*service-settings`. identity- and assistant-service read theirs through `src/config/settings.js`,
+which refuses to start on a malformed value (and assistant-service checks the lease outlasts the
+turn budget); the others read `Number(process.env.X) || default` where used, and the copied files
+(`bundleContext.js`, `automationNotifier.js`) do so identically. **A default lives in two places —
+the code and compose's `:-` — keep them equal.** The web app mirrors three server rules as build
+arguments from the same `.env` values (`PASSWORD_MIN_LENGTH`, `ADMIN_PASSWORD_MIN_LENGTH`,
+`VAULT_MAX_FILE_MB` → `VITE_*`, read in `frontend/src/config.js`). Left as code on purpose: cipher
+sizes, embedding dimensions, the internal service-token issuer and scopes, the CSV format, UI
+animation timings, the migration lock key — changing them is a code change, not a setting.
+
 Note the asymmetry: the interpolated variables *are* still shell-overridable, which is normal and
 useful for CI. Only `OPENROUTER_*` is shell-proof.
 
