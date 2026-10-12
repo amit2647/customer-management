@@ -32,6 +32,15 @@ copy it to `.env` and work through this list.
   TLS proxy, or in Kong's `response-transformer` (`kong/kong.yml`) and the
   frontend's `security-headers.conf`. It is deliberately absent on plain HTTP.
 
+## 1a. Production on this machine only
+
+Without a domain and HTTPS, the stack can still run with production secrets
+and settings for use on the machine itself: `docker-compose.prod.yml`
+publishes only the web app and the gateway, on `127.0.0.1`, and nothing else.
+Set `COMPOSE_FILE=docker-compose.yml:docker-compose.prod.yml` in `.env` so
+plain `docker compose` uses it. `AUTH_COOKIE_SECURE` stays `false` and
+`HYDRA_SERVE_FLAGS` keeps `--dev` there, since both need HTTPS.
+
 ## 2. Publish only the front door
 
 `docker-compose.yml` publishes every service's port (4001–4012) for local
@@ -80,15 +89,11 @@ decrypts, so a rotation adds the new secret first and keeps the old one after
 it until nothing encrypted under it remains (sessions expire within
 `HYDRA_TTL_REFRESH_TOKEN`, 7 days by default).
 
-Two cautions, because this has not been exercised on this stack yet:
-
-- In Hydra v26.2.0, list, boolean and object settings were found to be
-  ignored or rejected as environment variables (see the top of
-  `hydra/hydra.yml`); whether `SECRETS_SYSTEM` accepts a comma-separated list
-  is unverified. Check it on a throwaway stack before relying on it.
-- If it does not, give `hydra` and `hydra-admin` a **second, untracked** config
-  file holding `secrets.system: [new, old]` — never `hydra/hydra.yml`, which is
-  committed.
+Verified on Hydra v26.2.0 (2026-10-12): `SECRETS_SYSTEM` takes a
+comma-separated list, so set `HYDRA_SECRETS_SYSTEM=new,old` in `.env` — never
+in `hydra/hydra.yml`, which is committed. Hydra kept serving the signing keys
+encrypted under the old secret, and sign-in worked end to end. Drop `,old`
+once sessions issued before the rotation have expired.
 
 Restart both Hydra containers after changing it.
 

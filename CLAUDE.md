@@ -287,6 +287,10 @@ serves traffic.
   sets up, renews recovery codes and switches off (each needs a code); Users → "Reset
   two-factor" (`system.settings`, audited as `user.mfa_reset`) also ends their sessions.
   Migration 024. Integration tests make codes with `lib.totp()` (RFC 6238, no library).
+- **Password hashing** in identity-service is the native `bcrypt` package (libuv thread pool), not
+  `bcryptjs`: pure-JS bcrypt blocked the event loop for seconds when people signed in together,
+  so identity-service could not answer Hydra's token hook and code exchanges timed out (CI load
+  smoke, 2026-10-12). The seed keeps `bcryptjs` (one hash per start). Same `$2a/$2b` hashes.
 - **Hardening** (P6): ten wrong passwords in a row lock an account for 15 minutes
   (`LOGIN_MAX_FAILED_ATTEMPTS`, `LOGIN_LOCK_MINUTES`; 429 `account_locked`, checked before the
   password). Each public sign-in endpoint (password, code, email links, setup, invite redeem) is

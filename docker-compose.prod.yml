@@ -1,0 +1,62 @@
+# Production on one machine, used from that machine (docs/production.md):
+#
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# or set COMPOSE_FILE=docker-compose.yml:docker-compose.prod.yml in .env so
+# plain `docker compose` uses it. The test scripts name their own files and
+# are unaffected.
+#
+# - Only the front door is published: the web app and the gateway, and only
+#   on 127.0.0.1, so other machines on the network cannot reach them. For
+#   other people to use it, put a TLS proxy in front instead (see the doc).
+# - Every service's debug port, and Redis, is published nowhere: the services
+#   trust X-Forwarded-For from one proxy hop, so they must only be reached
+#   through Kong.
+
+services:
+  frontend:
+    ports: !override
+      - "127.0.0.1:${FRONTEND_HOST_PORT:-3000}:3000"
+
+  kong:
+    ports: !override
+      - "127.0.0.1:${KONG_HOST_PORT:-8080}:8000"
+
+  redis:
+    ports: !reset []
+
+  lead-service:
+    ports: !reset []
+
+  customer-service:
+    ports: !reset []
+
+  service-service:
+    ports: !reset []
+
+  identity-service:
+    ports: !reset []
+
+  dashboard-service:
+    ports: !reset []
+
+  email-service:
+    ports: !reset []
+
+  assistant-service:
+    ports: !reset []
+
+  bundle-service:
+    ports: !reset []
+
+  engagement-service:
+    ports: !reset []
+
+  obligation-service:
+    ports: !reset []
+
+  document-service:
+    ports: !reset []
+
+  vault-service:
+    ports: !reset []
