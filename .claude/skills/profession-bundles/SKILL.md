@@ -129,6 +129,16 @@ The rules and the install/upgrade model are in the root `CLAUDE.md` (**Professio
   `ui:order` at install (`withOrder`). A bundle's own `ui:order` wins.
 - Editing a template's text needs `system.settings` (Documents → a letter → Edit); previewing
   unsaved text through `POST /documents/preview` with a `body` needs it too.
+- **A firm's own letters** (Documents → New letter, `POST /documents/templates`,
+  `system.settings`): `source 'firm'`, **no `bundle_key`**, key `firm_<name>` (never reused,
+  retired ones included), so an install neither retires nor adopts one. The firm sets the name,
+  the service it is offered for (`enabled_when: { engaged: <key> }`, or every client), simple
+  fields (text, paragraph, date, number → a JSON schema; `fieldList` on the detail reads them
+  back, and a renamed field keeps its key) and the text, checked by the same
+  `templates.check`. Editing any of these adds a version; `DELETE /documents/templates/:key`
+  retires only a firm's own letter (409 for a bundle's), and letters made from it stay. The
+  preview takes `fields` and no `templateKey` for a letter not yet created. Audited as
+  `document_template.created` / `.removed`.
 - **CA letters are skeletons**: every field, condition and pre-fill is wired, but the legal
   wording is `[Wording: …]` gaps until the firm supplies it — so none can be finalized as
   shipped. The order letters are offered in is their folder order (`documents/01-…`).

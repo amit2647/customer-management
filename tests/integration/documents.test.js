@@ -201,6 +201,90 @@ describe("the firm's own text, and finalizing", () => {
   });
 });
 
+describe("the firm's own letters", () => {
+  const LETTER = {
+    name: "Audit kick-off note",
+    service: "statutory_audit",
+    fields: [{ title: "Meeting date", type: "date" }, { title: "Agenda", type: "paragraph" }],
+    body: "<p>Dear {{client.name}},</p><p>We meet on {{date fields.meeting_date}}.</p><p>{{fields.agenda}}</p><p>{{firm.name}}</p>",
+  };
+
+  test("a firm adds a letter of its own, offered for the service it names", async () => {
+    const created = await api("POST", "/documents/templates", { token: firm.token, body: LETTER });
+
+    assert.equal(created.status, 201, JSON.stringify(created.body));
+    assert.equal(created.body.key, "firm_audit_kick_off_note");
+    assert.equal(created.body.firmMade, true);
+    assert.equal(created.body.service, "statutory_audit");
+    assert.deepEqual(created.body.fieldList.map((field) => [field.key, field.type]), [["meeting_date", "date"], ["agenda", "paragraph"]]);
+    assert.equal(sql("SELECT action FROM audit_events WHERE entity_id = 'firm_audit_kick_off_note' ORDER BY id DESC LIMIT 1"), "document_template.created");
+
+    const again = await api("POST", "/documents/templates", { token: firm.token, body: LETTER });
+    assert.equal(again.body.key, "firm_audit_kick_off_note_2", "the same name again gets a key of its own");
+    assert.equal((await api("DELETE", `/documents/templates/${again.body.key}`, { token: firm.token })).status, 200);
+
+    const notEngaged = await client();
+    await engage(notEngaged, [{ serviceId: services.itr }]);
+    const off = (await tilesFor(notEngaged)).firm_audit_kick_off_note;
+    assert.equal(off.enabled, false);
+    assert.equal(off.reason, "Needs Statutory Audit engaged for this year");
+    assert.equal(off.firmMade, true);
+  });
+
+  test("its letters are made, filled and finalized like the bundle's, and keep their text after an edit", async () => {
+    const id = await client();
+    await engage(id, [{ serviceId: services.statutory_audit }]);
+    assert.equal((await tilesFor(id)).firm_audit_kick_off_note.enabled, true);
+
+    const made = await api("POST", "/documents", {
+      token: firm.token,
+      body: { templateKey: "firm_audit_kick_off_note", customerId: id, period: year, fieldValues: { meeting_date: "2026-11-02", agenda: "Scope & timing" } },
+    });
+    assert.equal(made.status, 201, JSON.stringify(made.body));
+    assert.match(made.body.rendered_html, /02\/11\/2026/);
+    assert.match(made.body.rendered_html, /Scope &amp; timing/);
+
+    const final = await api("POST", `/documents/${made.body.id}/finalize`, { token: firm.token, body: {} });
+    assert.equal(final.status, 200, JSON.stringify(final.body));
+
+    // Renaming a field keeps its key, so the text still finds it.
+    const edited = await api("PUT", "/documents/templates/firm_audit_kick_off_note", {
+      token: firm.token,
+      body: { ...LETTER, name: "Audit kick-off", service: null, fields: [{ key: "meeting_date", title: "First meeting", type: "date" }, { key: "agenda", title: "Agenda", type: "paragraph" }], body: "<p>New text {{fields.meeting_date}}</p>" },
+    });
+    assert.equal(edited.status, 200, JSON.stringify(edited.body));
+    assert.equal(edited.body.version, 2);
+    assert.equal(edited.body.name, "Audit kick-off");
+    assert.equal(edited.body.service, null);
+    assert.equal(edited.body.fieldList[0].title, "First meeting");
+
+    const kept = await api("GET", `/documents/${made.body.id}`, { token: firm.token });
+    assert.doesNotMatch(kept.body.rendered_html, /New text/);
+  });
+
+  test("its text and fields are checked like the bundle's", async () => {
+    const unknownField = await api("POST", "/documents/templates", { token: firm.token, body: { ...LETTER, body: "<p>{{fields.fee}}</p>" } });
+    assert.equal(unknownField.status, 400);
+
+    const unknownService = await api("POST", "/documents/templates", { token: firm.token, body: { ...LETTER, service: "no_such_service" } });
+    assert.equal(unknownService.status, 400);
+
+    const assistant = await createUser(firm.token, "CA_ARTICLE_ASSISTANT");
+    assert.equal((await api("POST", "/documents/templates", { token: assistant.token, body: LETTER })).status, 403);
+  });
+
+  test("only a firm's own letter can be removed, and the letters made from it stay", async () => {
+    assert.equal((await api("DELETE", "/documents/templates/consent_appointment", { token: firm.token })).status, 409);
+
+    const made = sql("SELECT count(*) FROM generated_documents WHERE template_key = 'firm_audit_kick_off_note'");
+    assert.equal((await api("DELETE", "/documents/templates/firm_audit_kick_off_note", { token: firm.token })).status, 200);
+
+    const keys = (await api("GET", "/documents/templates", { token: firm.token })).body.map((tile) => tile.key);
+    assert.ok(!keys.includes("firm_audit_kick_off_note"));
+    assert.equal(sql("SELECT count(*) FROM generated_documents WHERE template_key = 'firm_audit_kick_off_note'"), made);
+  });
+});
+
 describe("an organization without a bundle", () => {
   test("has no documents", async () => {
     assert.equal((await api("GET", "/documents/templates", { token: admin })).status, 404);

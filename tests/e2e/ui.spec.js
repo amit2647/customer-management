@@ -800,6 +800,42 @@ test("a firm writes its own letter text, then a client's letter is drafted and f
   await expect(page.getByRole("region", { name: "Documents made" }).getByText("Final")).toBeVisible();
 });
 
+// The firm's own letter: added on Documents, then made for a client.
+test("a firm adds a letter of its own, and it is offered on a client's Documents tab", async ({ page, request }) => {
+  const headers = { Authorization: `Bearer ${await apiToken(request, ADMIN)}` };
+  const name = unique("Gupta Traders");
+  const created = await request.post(`${API}/customers`, { headers, data: { name, profile: { attributes: { constitution: "proprietorship" } } } });
+  expect(created.status()).toBe(201);
+  const customerId = (await created.json()).id;
+  const letter = unique("Document request");
+
+  await prepare(page);
+  await signIn(page);
+  await page.getByRole("link", { name: "Documents", exact: true }).click();
+  await page.getByRole("button", { name: "+ New letter" }).click();
+
+  await page.getByLabel("Name").fill(letter);
+  await page.getByRole("button", { name: "Add field" }).click();
+  await page.getByLabel("Field 1 name").fill("Documents needed");
+  await page.getByLabel("Field 1 type").selectOption("paragraph");
+  await page.getByLabel("Template text").fill("<p>Dear {{client.name}},</p><p>Please send us: {{fields.documents_needed}}</p><p>{{firm.name}}</p>");
+  await page.getByRole("button", { name: "Preview" }).click();
+  await expect(page.frameLocator("iframe.letter-frame").getByText("[Documents needed]")).toBeVisible();
+  await page.getByRole("button", { name: "Add letter" }).click();
+  await expect(page.getByText(/Letter added/)).toBeVisible();
+  await expect(page.getByRole("heading", { name: letter })).toBeVisible();
+  await shot(page, "document-new-letter");
+
+  // Offered to every client, and filled like any other letter.
+  await page.goto(`/clients/${customerId}`);
+  await page.getByRole("tab", { name: "Documents" }).click();
+  await page.getByRole("group", { name: "Letters" }).getByRole("button", { name: new RegExp(letter) }).click();
+  await page.getByLabel(/Documents needed/).fill("Bank statements for March");
+  await page.getByRole("button", { name: "Save draft" }).click();
+  await expect(page.getByText("Draft saved.")).toBeVisible();
+  await expect(page.frameLocator("iframe.letter-frame").getByText(/Bank statements for March/)).toBeVisible();
+});
+
 // Milestone M6 — the vault, after the CA install.
 test("a client's signed consent is uploaded, then a portal password is saved and revealed with a reason", async ({ page, request }) => {
   const headers = { Authorization: `Bearer ${await apiToken(request, ADMIN)}` };
