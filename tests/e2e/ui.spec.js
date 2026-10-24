@@ -706,7 +706,11 @@ test("a service is added and edited on its own page, and viewed from the list", 
   await expect(form.getByLabel("Service name")).toHaveValue(name);
   await form.getByLabel("Service name").fill(`${name} and Payslips`);
   await form.getByLabel("Category").selectOption("+ Add new category…");
-  await form.getByLabel("New category").fill("People services");
+  const dialog = page.getByRole("dialog", { name: "Add category" });
+  await dialog.getByLabel("Category name").fill("People services");
+  await shot(page, "service-new-category");
+  await dialog.getByRole("button", { name: "Add category" }).click();
+  await expect(form.getByLabel("Category")).toHaveValue("People services");
   await form.getByRole("button", { name: /Review/ }).click();
   await form.getByRole("button", { name: "Save service" }).click();
   await expect(page.getByText("Service saved.")).toBeVisible();
