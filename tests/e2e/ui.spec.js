@@ -682,11 +682,13 @@ test("a service is added and edited on its own page, and viewed from the list", 
   await expect(page).toHaveURL(/\/services\/new$/);
   const form = page.getByRole("form", { name: "Service" });
   await form.getByLabel("Service name").fill(name);
-  await form.getByLabel("Group").fill("Payroll");
-  await form.getByRole("button", { name: /Continue/ }).click();
+  // The CA bundle's groups are the categories on offer, and a new one can be added.
+  await form.getByLabel("Category").selectOption("Payroll");
   await form.getByLabel("Description").fill("Monthly payroll and payslips");
+  await shot(page, "service-wizard");
   await form.getByRole("button", { name: /Continue/ }).click();
   await expect(form.getByText("Monthly payroll and payslips")).toBeVisible();
+  await expect(form.getByText("Category: Payroll")).toBeVisible();
   await shot(page, "service-wizard-review");
   await form.getByRole("button", { name: "Add service" }).click();
 
@@ -703,10 +705,13 @@ test("a service is added and edited on its own page, and viewed from the list", 
   await expect(page).toHaveURL(/\/services\/\d+\/edit$/);
   await expect(form.getByLabel("Service name")).toHaveValue(name);
   await form.getByLabel("Service name").fill(`${name} and Payslips`);
+  await form.getByLabel("Category").selectOption("+ Add new category…");
+  await form.getByLabel("New category").fill("People services");
   await form.getByRole("button", { name: /Review/ }).click();
   await form.getByRole("button", { name: "Save service" }).click();
   await expect(page.getByText("Service saved.")).toBeVisible();
   await expect(page.getByRole("heading", { name: `${name} and Payslips` })).toBeVisible();
+  await expect(page.getByText("People services").first()).toBeVisible();
 });
 
 // Before M5 — one screen for leads, and a prospect and its client as one.

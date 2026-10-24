@@ -95,7 +95,9 @@ describe("installing CA Practice", () => {
     assert.equal(body.bundle.vocabulary.period.one, "Financial year");
     assert.deepEqual(body.bundle.pipeline.map((column) => column.label), ["Leads", "In Discussion", "Quote Sent"]);
     assert.equal(body.bundle.profiles.client.schema.properties.constitution.enum.length, 7);
+    assert.deepEqual(body.bundle.serviceGroups, ["Audit", "Accounting", "GST", "Compliance", "Payroll"]);
     assert.equal(body.catalog, undefined, "only the public sections are shared");
+    assert.equal(body.bundle.catalog, undefined, "the groups' labels, not the catalog");
   });
 
   test("its catalog holds the 12 services, keyed, and the packages", async () => {
