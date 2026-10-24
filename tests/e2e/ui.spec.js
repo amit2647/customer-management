@@ -671,6 +671,44 @@ test("a client's deadlines show on its Compliance tab and in the firm-wide feed"
   await expect(page.getByRole("region", { name: "GST Returns deadlines" }).getByText(deadline)).toBeVisible();
 });
 
+// Adding and editing a service are a wizard on their own page; the list views, edits and deletes.
+test("a service is added and edited on its own page, and viewed from the list", async ({ page }) => {
+  await prepare(page);
+  await signIn(page);
+  const name = unique("Payroll Processing");
+
+  await page.getByRole("link", { name: "Services", exact: true }).click();
+  await page.getByRole("button", { name: "+ Add Service" }).click();
+  await expect(page).toHaveURL(/\/services\/new$/);
+  const form = page.getByRole("form", { name: "Service" });
+  await form.getByLabel("Service name").fill(name);
+  await form.getByLabel("Group").fill("Payroll");
+  await form.getByRole("button", { name: /Continue/ }).click();
+  await form.getByLabel("Description").fill("Monthly payroll and payslips");
+  await form.getByRole("button", { name: /Continue/ }).click();
+  await expect(form.getByText("Monthly payroll and payslips")).toBeVisible();
+  await shot(page, "service-wizard-review");
+  await form.getByRole("button", { name: "Add service" }).click();
+
+  await expect(page).toHaveURL(/\/services$/);
+  await expect(page.getByText(/Service added/)).toBeVisible();
+  const list = page.getByRole("region", { name: "Services" });
+  await list.getByLabel("Search services").fill(name);
+  await shot(page, "services-list-actions");
+
+  // View opens the service; Edit there comes back to it.
+  await list.getByRole("button", { name: `View ${name}` }).click();
+  await expect(page.getByRole("heading", { name })).toBeVisible();
+  await page.getByRole("button", { name: "Edit" }).click();
+  await expect(page).toHaveURL(/\/services\/\d+\/edit$/);
+  await expect(form.getByLabel("Service name")).toHaveValue(name);
+  await form.getByLabel("Service name").fill(`${name} and Payslips`);
+  await form.getByRole("button", { name: /Review/ }).click();
+  await form.getByRole("button", { name: "Save service" }).click();
+  await expect(page.getByText("Service saved.")).toBeVisible();
+  await expect(page.getByRole("heading", { name: `${name} and Payslips` })).toBeVisible();
+});
+
 // Before M5 — one screen for leads, and a prospect and its client as one.
 test("with a bundle, Prospects and Clients replace Leads and Customers, and a converted prospect follows its client", async ({ page }) => {
   await prepare(page);
