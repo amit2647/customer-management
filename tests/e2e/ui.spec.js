@@ -409,8 +409,9 @@ test("a profession bundle is installed from Settings", async ({ page }) => {
   await expect(page.getByText("12 services and 2 packages")).toBeVisible();
   await shot(page, "bundle-offer");
 
-  page.once("dialog", (dialog) => dialog.accept());
   await page.getByRole("button", { name: "Install CA Practice" }).click();
+  await shot(page, "confirm-dialog");
+  await confirmDialog(page, "Install");
 
   const installed = page.getByRole("region", { name: "Installed bundle" });
 
@@ -427,6 +428,13 @@ test("a profession bundle is installed from Settings", async ({ page }) => {
 const unique = (label) => `${label} ${Date.now().toString(36)}`;
 // A wizard's Continue, one step at a time: a click while a step is still
 // changing can be lost.
+// Our confirm dialog (the app's, not the browser's): press its confirm button.
+const confirmDialog = async (page, label) => {
+  const dialog = page.getByRole("dialog");
+  await dialog.getByRole("button", { name: label, exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+};
+
 const continueTo = async (page, step) => {
   await page.getByRole("button", { name: /Continue/ }).click();
   await expect(page.getByText(`STEP 0${step}`)).toBeVisible();
@@ -525,8 +533,8 @@ test("a prospect moves along the board and converts into a client", async ({ pag
   await expect(page.getByRole("region", { name: "In Discussion" }).getByText(name)).toBeVisible();
   await shot(page, "prospect-board");
 
-  page.once("dialog", (dialog) => dialog.accept());
   await page.getByRole("region", { name: "In Discussion" }).locator("article", { hasText: name }).getByRole("button", { name: "Convert" }).click();
+  await confirmDialog(page, "Convert");
 
   await expect(page.getByText("Converted from a prospect")).toBeVisible();
   await expect(page.getByLabel("Entity name")).toHaveValue(name);
@@ -766,8 +774,8 @@ test("with a bundle, Prospects and Clients replace Leads and Customers, and a co
   await shot(page, "prospects-list");
 
   // Convert: the wizard starts from what the prospect stage learned.
-  page.once("dialog", (dialog) => dialog.accept());
   await list.locator("tr", { hasText: name }).getByRole("button", { name: "Convert" }).click();
+  await confirmDialog(page, "Convert");
   await expect(page.getByText("Converted from a prospect")).toBeVisible();
   await expect(page.getByLabel(/Constitution/).locator("option:checked")).toHaveText("Proprietorship");
   await shot(page, "prospect-onboarding-prefilled");
@@ -836,9 +844,10 @@ test("a firm writes its own letter text, then a client's letter is drafted and f
   await expect(page.getByText("Draft saved.")).toBeVisible();
   await expect(page.frameLocator("iframe.letter-frame").getByText(/We consent to act as statutory auditors/)).toBeVisible();
 
-  page.once("dialog", (dialog) => dialog.accept());
   await page.getByRole("button", { name: "Finalize" }).click();
-  await expect(page.getByText("Finalized.")).toBeVisible();
+  await confirmDialog(page, "Finalize");
+  await expect(page.getByRole("status").filter({ hasText: "Finalized." })).toBeVisible();
+  await shot(page, "toast");
   await expect(page.getByRole("button", { name: "Apply changes" })).toHaveCount(0);
   await shot(page, "document-final");
 
