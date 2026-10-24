@@ -866,8 +866,10 @@ test("a firm adds a letter of its own, and it is offered on a client's Documents
   await page.getByLabel("Field 1 name").fill("Documents needed");
   await page.getByLabel("Field 1 type").selectOption("paragraph");
   await page.getByLabel("Template text").fill("<p>Dear {{client.name}},</p><p>Please send us: {{fields.documents_needed}}</p><p>{{firm.name}}</p>");
-  await page.getByRole("button", { name: "Preview" }).click();
+  // The preview follows the text as it is typed, and lists the gaps.
   await expect(page.frameLocator("iframe.letter-frame").getByText("[Documents needed]")).toBeVisible();
+  await expect(page.getByText(/Gaps \(\d+\):/)).toBeVisible();
+  await shot(page, "document-letter-editor");
   await page.getByRole("button", { name: "Add letter" }).click();
   await expect(page.getByText(/Letter added/)).toBeVisible();
   await expect(page.getByRole("heading", { name: letter })).toBeVisible();
